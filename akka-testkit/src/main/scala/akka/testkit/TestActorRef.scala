@@ -7,9 +7,9 @@ package akka.testkit
 import akka.actor._
 import akka.util.ReflectiveAccess
 import akka.event.EventHandler
-
 import com.eaio.uuid.UUID
 import akka.actor.Props._
+import akka.AkkaApplication
 
 /**
  * This special ActorRef is exclusively for use during unit testing in a single-threaded environment. Therefore, it
@@ -19,7 +19,8 @@ import akka.actor.Props._
  * @author Roland Kuhn
  * @since 1.1
  */
-class TestActorRef[T <: Actor](props: Props, address: String) extends LocalActorRef(props.withDispatcher(CallingThreadDispatcher.global), address, false) {
+class TestActorRef[T <: Actor](_app: AkkaApplication, _props: Props, _supervisor: ActorRef, address: String)
+  extends LocalActorRef(_app, _props.withDispatcher(new CallingThreadDispatcher(_app)), _supervisor, address, false) {
   /**
    * Directly inject messages into actor receive behavior. Any exceptions
    * thrown will be available to you, while still being able to use
@@ -36,43 +37,29 @@ class TestActorRef[T <: Actor](props: Props, address: String) extends LocalActor
 
   override def toString = "TestActor[" + address + ":" + uuid + "]"
 
-  override def equals(other: Any) =
-    other.isInstanceOf[TestActorRef[_]] &&
-      other.asInstanceOf[TestActorRef[_]].uuid == uuid
-
-  /**
-   * Override to check whether the new supervisor is running on the CallingThreadDispatcher,
-   * as it should be. This can of course be tricked by linking before setting the dispatcher before starting the
-   * supervisor, but then you just asked for trouble.
-   */
-  override def supervisor_=(a: Option[ActorRef]) {
-    a match { //TODO This should probably be removed since the Supervisor could be a remote actor for all we know
-      case Some(l: LocalActorRef) if !l.underlying.dispatcher.isInstanceOf[CallingThreadDispatcher] ⇒
-        EventHandler.warning(this, "supervisor " + l + " does not use CallingThreadDispatcher")
-      case _ ⇒
-    }
-    super.supervisor_=(a)
-  }
-
+  override def equals(other: Any) = other.isInstanceOf[TestActorRef[_]] && other.asInstanceOf[TestActorRef[_]].uuid == uuid
 }
 
 object TestActorRef {
 
-  def apply[T <: Actor](factory: ⇒ T): TestActorRef[T] = apply[T](Props(factory), new UUID().toString)
+  def apply[T <: Actor](factory: ⇒ T)(implicit app: AkkaApplication): TestActorRef[T] = apply[T](Props(factory), Props.randomAddress)
 
-  def apply[T <: Actor](factory: ⇒ T, address: String): TestActorRef[T] = apply[T](Props(factory), address)
+  def apply[T <: Actor](factory: ⇒ T, address: String)(implicit app: AkkaApplication): TestActorRef[T] = apply[T](Props(factory), address)
 
-  def apply[T <: Actor](props: Props): TestActorRef[T] = apply[T](props, new UUID().toString)
+  def apply[T <: Actor](props: Props)(implicit app: AkkaApplication): TestActorRef[T] = apply[T](props, Props.randomAddress)
 
-  def apply[T <: Actor](props: Props, address: String): TestActorRef[T] = new TestActorRef(props, address)
+  def apply[T <: Actor](props: Props, address: String)(implicit app: AkkaApplication): TestActorRef[T] = apply[T](props, app.guardian, address)
 
-  def apply[T <: Actor: Manifest]: TestActorRef[T] = apply[T](new UUID().toString)
+  def apply[T <: Actor](props: Props, supervisor: ActorRef, address: String)(implicit app: AkkaApplication): TestActorRef[T] =
+    new TestActorRef(app, props, supervisor, address)
 
-  def apply[T <: Actor: Manifest](address: String): TestActorRef[T] = apply[T](Props({
+  def apply[T <: Actor](implicit m: Manifest[T], app: AkkaApplication): TestActorRef[T] = apply[T](Props.randomAddress)
+
+  def apply[T <: Actor](address: String)(implicit m: Manifest[T], app: AkkaApplication): TestActorRef[T] = apply[T](Props({
     import ReflectiveAccess.{ createInstance, noParams, noArgs }
-    createInstance[T](manifest[T].erasure, noParams, noArgs) match {
+    createInstance[T](m.erasure, noParams, noArgs) match {
       case Right(value) ⇒ value
-      case Left(exception) ⇒ throw new ActorInitializationException(
+      case Left(exception) ⇒ throw new ActorInitializationException(null,
         "Could not instantiate Actor" +
           "\nMake sure Actor is NOT defined inside a class/trait," +
           "\nif so put it outside the class/trait, f.e. in a companion object," +

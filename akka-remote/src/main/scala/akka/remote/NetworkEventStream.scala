@@ -5,16 +5,15 @@
 package akka.remote
 
 import akka.dispatch.PinnedDispatcher
-
 import scala.collection.mutable
-
 import java.net.InetSocketAddress
 import akka.actor.{ LocalActorRef, Actor, ActorRef, Props, newUuid }
 import akka.actor.Actor._
+import akka.AkkaApplication
 
 /**
  * Stream of all kinds of network events, remote failure and connection events, cluster failure and connection events etc.
- * Also provides API for channel listener management.
+ * Also provides API for sender listener management.
  *
  * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
@@ -59,19 +58,26 @@ object NetworkEventStream {
       case _ ⇒ //ignore other
     }
   }
+}
 
-  private[akka] val channel = new LocalActorRef(
-    Props[Channel].copy(dispatcher = new PinnedDispatcher()), newUuid.toString, systemService = true)
+class NetworkEventStream(val app: AkkaApplication) {
+
+  import NetworkEventStream._
+
+  // FIXME: check that this supervision is correct
+  private[akka] val sender = app.provider.actorOf(
+    Props[Channel].copy(dispatcher = app.dispatcherFactory.newPinnedDispatcher("NetworkEventStream")),
+    app.guardian, Props.randomAddress, systemService = true)
 
   /**
    * Registers a network event stream listener (asyncronously).
    */
   def register(listener: Listener, connectionAddress: InetSocketAddress) =
-    channel ! Register(listener, connectionAddress)
+    sender ! Register(listener, connectionAddress)
 
   /**
    * Unregisters a network event stream listener (asyncronously) .
    */
   def unregister(listener: Listener, connectionAddress: InetSocketAddress) =
-    channel ! Unregister(listener, connectionAddress)
+    sender ! Unregister(listener, connectionAddress)
 }

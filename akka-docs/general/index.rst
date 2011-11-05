@@ -8,4 +8,6 @@ General
    configuration
    event-handler
    slf4j
+   supervision
+   guaranteed-delivery
 

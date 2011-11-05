@@ -4,16 +4,17 @@
 
 package akka.tutorial.java.second;
 
-import static akka.actor.Actors.actorOf;
 import static akka.actor.Actors.poisonPill;
 import static java.lang.System.currentTimeMillis;
 import static java.util.Arrays.asList;
 
+import akka.AkkaApplication;
 import akka.routing.RoutedProps;
 import akka.routing.Routing;
+import akka.routing.LocalConnectionManager;
 import scala.Option;
 import akka.actor.ActorRef;
-import akka.actor.Channel;
+import akka.actor.Actors;
 import akka.actor.UntypedActor;
 import akka.actor.UntypedActorFactory;
 import akka.dispatch.Future;
@@ -24,6 +25,8 @@ import scala.collection.JavaConversions;
 import java.util.LinkedList;
 
 public class Pi {
+
+  private static final AkkaApplication app = new AkkaApplication();
 
   public static void main(String[] args) throws Exception {
     Pi pi = new Pi();
@@ -76,7 +79,7 @@ public class Pi {
     public void onReceive(Object message) {
       if (message instanceof Work) {
         Work work = (Work) message;
-        reply(new Result(calculatePiFor(work.getArg(), work.getNrOfElements()))); // perform the work
+        getSender().tell(new Result(calculatePiFor(work.getArg(), work.getNrOfElements()))); // perform the work
       } else throw new IllegalArgumentException("Unknown message [" + message + "]");
     }
   }
@@ -99,11 +102,11 @@ public class Pi {
 
       LinkedList<ActorRef> workers = new LinkedList<ActorRef>();
       for (int i = 0; i < nrOfWorkers; i++) {
-         ActorRef worker = actorOf(Worker.class, "worker");
+         ActorRef worker = app.actorOf(Worker.class);
          workers.add(worker);
       }
 
-      router = Routing.actorOf(RoutedProps.apply().withConnections(workers).withRoundRobinRouter(), "pi");
+      router = app.actorOf(new RoutedProps().withRoundRobinRouter().withLocalConnections(workers), "pi");
     }
 
     @Override
@@ -123,11 +126,11 @@ public class Pi {
           router.tell(new Work(arg, nrOfElements), getSelf());
         }
         // Assume the gathering behavior
-        become(gather(getChannel()));
+        become(gather(getSender()));
       }
     };
 
-    private Procedure<Object> gather(final Channel<Object> recipient) {
+    private Procedure<Object> gather(final ActorRef recipient) {
       return new Procedure<Object>() {
         public void apply(Object msg) {
           // handle result from the worker
@@ -159,18 +162,18 @@ public class Pi {
   public void calculate(final int nrOfWorkers, final int nrOfElements, final int nrOfMessages) throws Exception {
 
     // create the master
-    ActorRef master = actorOf(new UntypedActorFactory() {
+    ActorRef master = app.actorOf(new UntypedActorFactory() {
       public UntypedActor create() {
         return new Master(nrOfWorkers, nrOfMessages, nrOfElements);
       }
-    }, "worker");
+    });
 
     // start the calculation
     long start = currentTimeMillis();
 
     // send calculate message
     long timeout = 60000;
-    Future<Object> replyFuture = master.ask(new Calculate(), timeout, null);
+    Future<Object> replyFuture = master.ask(new Calculate(), timeout);
     Option<Object> result = replyFuture.await().resultOrException();
     if (result.isDefined()) {
       double pi = (Double) result.get();

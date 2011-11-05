@@ -16,7 +16,7 @@ import akka.actor._
 import akka.camel.{ Ack, Failure, Message }
 import akka.camel.CamelMessageConversion.toExchangeAdapter
 import scala.reflect.BeanProperty
-import akka.dispatch.{ FutureTimeoutException, Promise, MessageDispatcher }
+import akka.dispatch._
 
 /**
  * @author Martin Krasser
@@ -266,24 +266,15 @@ private[akka] class AsyncCallbackAdapter(exchange: Exchange, callback: AsyncCall
   val address = exchange.getExchangeId
 
   @volatile
-  private var running: Boolean = false
-
-  def isRunning: Boolean = running
+  private var running: Boolean = true
 
   def isShutdown: Boolean = !running
-
-  def start = {
-    running = true
-    this
-  }
 
   def suspend(): Unit = ()
 
   def resume(): Unit = ()
 
-  def stop() {
-    running = false
-  }
+  def stop() { running = false }
 
   /**
    * Populates the initial <code>exchange</code> with the reply <code>message</code> and uses the
@@ -293,7 +284,7 @@ private[akka] class AsyncCallbackAdapter(exchange: Exchange, callback: AsyncCall
    * @param message reply message
    * @param sender ignored
    */
-  protected[akka] def postMessageToMailbox(message: Any, channel: UntypedChannel) = {
+  protected[akka] def postMessageToMailbox(message: Any, sender: ActorRef) = if(running) {
     message match {
       case Ack          ⇒ { /* no response message to set */ }
       case msg: Failure ⇒ exchange.fromFailureMessage(msg)
@@ -302,16 +293,12 @@ private[akka] class AsyncCallbackAdapter(exchange: Exchange, callback: AsyncCall
     callback.done(false)
   }
 
-  def dispatcher_=(md: MessageDispatcher): Unit = unsupported
-  def dispatcher: MessageDispatcher = unsupported
-  def link(actorRef: ActorRef): ActorRef = unsupported
-  def unlink(actorRef: ActorRef): ActorRef = unsupported
-  def shutdownLinkedActors: Unit = unsupported
-  def supervisor: Option[ActorRef] = unsupported
-  protected[akka] def postMessageToMailboxAndCreateFutureResultWithTimeout(message: Any, timeout: Timeout, channel: UntypedChannel) = unsupported
-  protected[akka] def restart(reason: Throwable, maxNrOfRetries: Option[Int], withinTimeRange: Option[Int]): Unit = unsupported
-  protected[akka] def registerSupervisorAsRemoteActor = unsupported
-  protected[akka] def supervisor_=(sup: Option[ActorRef]): Unit = unsupported
+  def startsMonitoring(actorRef: ActorRef): ActorRef = unsupported
+  def stopsMonitoring(actorRef: ActorRef): ActorRef = unsupported
+
+  def ?(message: Any)(implicit timeout: Timeout): Future[Any] =
+    new KeptPromise[Any](Left(new UnsupportedOperationException("Ask/? is not supported for %s".format(getClass.getName))))
+  def restart(reason: Throwable): Unit = unsupported
 
   private def unsupported = throw new UnsupportedOperationException("Not supported for %s" format classOf[AsyncCallbackAdapter].getName)
 }

@@ -8,10 +8,13 @@ import akka.actor.Actor._
 import akka.event.EventHandler
 import System.{ currentTimeMillis ⇒ now }
 import akka.routing.Routing.Broadcast
-import akka.actor.{ Timeout, Channel, Actor, PoisonPill }
-import akka.routing.{ RoutedProps, Routing }
+import akka.routing._
+import akka.AkkaApplication
+import akka.actor.{ ActorRef, Timeout, Actor, PoisonPill }
 
 object Pi extends App {
+
+  val app = AkkaApplication()
 
   calculate(nrOfWorkers = 4, nrOfElements = 10000, nrOfMessages = 10000)
 
@@ -37,8 +40,7 @@ object Pi extends App {
     }
 
     def receive = {
-      case Work(arg, nrOfElements) ⇒
-        reply(Result(calculatePiFor(arg, nrOfElements))) // perform the work
+      case Work(arg, nrOfElements) ⇒ sender ! Result(calculatePiFor(arg, nrOfElements)) // perform the work
     }
   }
 
@@ -50,10 +52,12 @@ object Pi extends App {
     var nrOfResults: Int = _
 
     // create the workers
-    val workers = Vector.fill(nrOfWorkers)(actorOf[Worker])
+    val workers = Vector.fill(nrOfWorkers)(app.actorOf[Worker])
 
     // wrap them with a load-balancing router
-    val router = Routing.actorOf(RoutedProps().withConnections(workers).withRoundRobinRouter, "pi")
+    val router = app.actorOf(RoutedProps(
+      routerFactory = () ⇒ new RoundRobinRouter,
+      connectionManager = new LocalConnectionManager(workers)), "pi")
 
     // phase 1, can accept a Calculate message
     def scatter: Receive = {
@@ -62,11 +66,11 @@ object Pi extends App {
         for (arg ← 0 until nrOfMessages) router ! Work(arg, nrOfElements)
 
         //Assume the gathering behavior
-        this become gather(channel)
+        this become gather(sender)
     }
 
     // phase 2, aggregate the results of the Calculation
-    def gather(recipient: Channel[Any]): Receive = {
+    def gather(recipient: ActorRef): Receive = {
       case Result(value) ⇒
         // handle result from the worker
         pi += value
@@ -96,7 +100,7 @@ object Pi extends App {
   // ==================
   def calculate(nrOfWorkers: Int, nrOfElements: Int, nrOfMessages: Int) {
     // create the master
-    val master = actorOf(new Master(nrOfWorkers, nrOfElements, nrOfMessages))
+    val master = app.actorOf(new Master(nrOfWorkers, nrOfElements, nrOfMessages))
 
     //start the calculation
     val start = now
@@ -105,9 +109,9 @@ object Pi extends App {
     master.?(Calculate, Timeout(60000)).
       await.resultOrException match { //wait for the result, with a 60 seconds timeout
         case Some(pi) ⇒
-          EventHandler.info(this, "\n\tPi estimate: \t\t%s\n\tCalculation time: \t%s millis".format(pi, (now - start)))
+          app.eventHandler.info(this, "\n\tPi estimate: \t\t%s\n\tCalculation time: \t%s millis".format(pi, (now - start)))
         case None ⇒
-          EventHandler.error(this, "Pi calculation did not complete within the timeout.")
+          app.eventHandler.error(this, "Pi calculation did not complete within the timeout.")
       }
   }
 }

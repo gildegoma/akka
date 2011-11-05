@@ -4,8 +4,6 @@
 
 package akka.actor
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
 import org.scalatest.BeforeAndAfterEach
 
 import akka.util.ByteString
@@ -55,12 +53,12 @@ object IOActorSpec {
     def receive = {
 
       case bytes: ByteString ⇒
-        val source = channel
+        val source = sender
         socket write bytes
         for {
           _ ← state
           bytes ← IO take bytes.length
-        } yield source tryTell bytes
+        } yield source ! bytes
 
       case IO.Read(socket, bytes) ⇒
         state(IO Chunk bytes)
@@ -164,12 +162,12 @@ object IOActorSpec {
 
     def receive = {
       case cmd: KVCommand ⇒
-        val source = channel
+        val source = sender
         socket write cmd.bytes
         for {
           _ ← state
           result ← readResult
-        } yield result.fold(err ⇒ source sendException (new RuntimeException(err)), source tryTell)
+        } yield result.fold(err ⇒ throw new RuntimeException(err), source !)
 
       case IO.Read(socket, bytes) ⇒
         state(IO Chunk bytes)
@@ -212,16 +210,17 @@ object IOActorSpec {
   }
 }
 
-class IOActorSpec extends WordSpec with MustMatchers with BeforeAndAfterEach {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class IOActorSpec extends AkkaSpec with BeforeAndAfterEach {
   import IOActorSpec._
 
   "an IO Actor" must {
     "run echo server" in {
       val started = TestLatch(1)
-      val ioManager = Actor.actorOf(new IOManager(2)) // teeny tiny buffer
-      val server = Actor.actorOf(new SimpleEchoServer("localhost", 8064, ioManager, started))
+      val ioManager = actorOf(new IOManager(2)) // teeny tiny buffer
+      val server = actorOf(new SimpleEchoServer("localhost", 8064, ioManager, started))
       started.await
-      val client = Actor.actorOf(new SimpleEchoClient("localhost", 8064, ioManager))
+      val client = actorOf(new SimpleEchoClient("localhost", 8064, ioManager))
       val f1 = client ? ByteString("Hello World!1")
       val f2 = client ? ByteString("Hello World!2")
       val f3 = client ? ByteString("Hello World!3")
@@ -235,10 +234,10 @@ class IOActorSpec extends WordSpec with MustMatchers with BeforeAndAfterEach {
 
     "run echo server under high load" in {
       val started = TestLatch(1)
-      val ioManager = Actor.actorOf(new IOManager())
-      val server = Actor.actorOf(new SimpleEchoServer("localhost", 8065, ioManager, started))
+      val ioManager = actorOf(new IOManager())
+      val server = actorOf(new SimpleEchoServer("localhost", 8065, ioManager, started))
       started.await
-      val client = Actor.actorOf(new SimpleEchoClient("localhost", 8065, ioManager))
+      val client = actorOf(new SimpleEchoClient("localhost", 8065, ioManager))
       val list = List.range(0, 1000)
       val f = Future.traverse(list)(i ⇒ client ? ByteString(i.toString))
       assert(f.get.size === 1000)
@@ -249,10 +248,10 @@ class IOActorSpec extends WordSpec with MustMatchers with BeforeAndAfterEach {
 
     "run echo server under high load with small buffer" in {
       val started = TestLatch(1)
-      val ioManager = Actor.actorOf(new IOManager(2))
-      val server = Actor.actorOf(new SimpleEchoServer("localhost", 8066, ioManager, started))
+      val ioManager = actorOf(new IOManager(2))
+      val server = actorOf(new SimpleEchoServer("localhost", 8066, ioManager, started))
       started.await
-      val client = Actor.actorOf(new SimpleEchoClient("localhost", 8066, ioManager))
+      val client = actorOf(new SimpleEchoClient("localhost", 8066, ioManager))
       val list = List.range(0, 1000)
       val f = Future.traverse(list)(i ⇒ client ? ByteString(i.toString))
       assert(f.get.size === 1000)
@@ -263,11 +262,11 @@ class IOActorSpec extends WordSpec with MustMatchers with BeforeAndAfterEach {
 
     "run key-value store" in {
       val started = TestLatch(1)
-      val ioManager = Actor.actorOf(new IOManager(2)) // teeny tiny buffer
-      val server = Actor.actorOf(new KVStore("localhost", 8067, ioManager, started))
+      val ioManager = actorOf(new IOManager(2)) // teeny tiny buffer
+      val server = actorOf(new KVStore("localhost", 8067, ioManager, started))
       started.await
-      val client1 = Actor.actorOf(new KVClient("localhost", 8067, ioManager))
-      val client2 = Actor.actorOf(new KVClient("localhost", 8067, ioManager))
+      val client1 = actorOf(new KVClient("localhost", 8067, ioManager))
+      val client2 = actorOf(new KVClient("localhost", 8067, ioManager))
       val f1 = client1 ? KVSet("hello", "World")
       val f2 = client1 ? KVSet("test", "No one will read me")
       val f3 = client1 ? KVGet("hello")

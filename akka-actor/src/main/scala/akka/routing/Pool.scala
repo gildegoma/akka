@@ -5,7 +5,6 @@
 package akka.routing
 
 import akka.dispatch.{ Promise }
-import akka.config.Supervision._
 import akka.actor._
 
 /**
@@ -41,7 +40,13 @@ trait ActorPool {
    * This method is invoked whenever the pool determines it must boost capacity.
    * @return A new actor for the pool
    */
-  def instance(): ActorRef
+  def instance(defaults: Props): ActorRef
+
+  /**
+   * This method gets called when a delegate is to be evicted, by default it sends a PoisonPill to the delegate
+   */
+  def evict(delegate: ActorRef): Unit = delegate ! PoisonPill
+
   /**
    * Returns the overall desired change in pool capacity. This method is used by non-static pools as the means
    * for the capacity strategy to influence the pool.
@@ -88,43 +93,39 @@ trait DefaultActorPool extends ActorPool { this: Actor ⇒
 
   protected[akka] var _delegates = Vector[ActorRef]()
 
-  override def postStop() {
-    _delegates foreach { delegate ⇒
-      try {
-        delegate ! PoisonPill
-      } catch { case e: Exception ⇒ } //Ignore any exceptions here
-    }
+  val defaultProps: Props = Props.default.withDispatcher(this.context.dispatcher)
+
+  override def preStart() {
+    resizeIfAppropriate()
   }
 
-  protected def _route(): Receive = {
+  override def postStop() {
+    _delegates foreach evict
+    _delegates = Vector.empty
+  }
+
+  protected def _route(): Actor.Receive = {
     // for testing...
     case Stat ⇒
-      tryReply(Stats(_delegates length))
-    case MaximumNumberOfRestartsWithinTimeRangeReached(victim, _, _, _) ⇒
-      _delegates = _delegates filterNot { _.uuid == victim.uuid }
-    case Terminated(victim, _) ⇒
-      _delegates = _delegates filterNot { _.uuid == victim.uuid }
+      sender ! Stats(_delegates length)
+    case Terminated(victim) ⇒
+      _delegates = _delegates filterNot { victim == }
     case msg ⇒
       resizeIfAppropriate()
 
       select(_delegates) foreach { _ forward msg }
   }
 
-  private def resizeIfAppropriate() {
+  protected def resizeIfAppropriate() {
     val requestedCapacity = capacity(_delegates)
     val newDelegates = requestedCapacity match {
       case qty if qty > 0 ⇒
-        _delegates ++ {
-          for (i ← 0 until requestedCapacity) yield {
-            val delegate = instance()
-            self link delegate
-            delegate
-          }
-        }
+        _delegates ++ Vector.fill(requestedCapacity)(self startsMonitoring instance(defaultProps))
+
       case qty if qty < 0 ⇒
         _delegates.splitAt(_delegates.length + requestedCapacity) match {
           case (keep, abandon) ⇒
-            abandon foreach { _ ! PoisonPill }
+            abandon foreach evict
             keep
         }
       case _ ⇒ _delegates //No change
@@ -288,16 +289,14 @@ trait MailboxPressureCapacitor {
 
 /**
  * Implements pressure() to return the number of actors currently processing a
- * message whose reply will be sent to a [[akka.dispatch.Future]].
+ * message.
  * In other words, this capacitor counts how many
- * delegates are tied up actively processing a message, as long as the
- * messages have somebody waiting on the result. "One way" messages with
- * no reply would not be counted.
+ * delegates are tied up actively processing a message
  */
-trait ActiveFuturesPressureCapacitor {
+trait ActiveActorsPressureCapacitor {
   def pressure(delegates: Seq[ActorRef]): Int =
     delegates count {
-      case a: LocalActorRef ⇒ a.underlying.channel.isInstanceOf[Promise[_]]
+      case a: LocalActorRef ⇒ !a.underlying.sender.isShutdown
       case _                ⇒ false
     }
 }

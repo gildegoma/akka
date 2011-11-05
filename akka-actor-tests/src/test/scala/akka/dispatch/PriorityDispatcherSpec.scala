@@ -1,37 +1,36 @@
 package akka.dispatch
 
-import akka.actor.Actor._
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
 import akka.actor.{ Props, LocalActorRef, Actor }
+import akka.testkit.AkkaSpec
 
-class PriorityDispatcherSpec extends WordSpec with MustMatchers {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class PriorityDispatcherSpec extends AkkaSpec {
 
   "A PriorityDispatcher" must {
     "Order it's messages according to the specified comparator using an unbounded mailbox" in {
-      testOrdering(UnboundedMailbox())
+      testOrdering(UnboundedPriorityMailbox(PriorityGenerator({
+        case i: Int  ⇒ i //Reverse order
+        case 'Result ⇒ Int.MaxValue
+      }: Any ⇒ Int)))
     }
 
     "Order it's messages according to the specified comparator using a bounded mailbox" in {
-      testOrdering(BoundedMailbox(1000))
+      testOrdering(BoundedPriorityMailbox(PriorityGenerator({
+        case i: Int  ⇒ i //Reverse order
+        case 'Result ⇒ Int.MaxValue
+      }: Any ⇒ Int), 1000, app.AkkaConfig.MailboxPushTimeout))
     }
   }
 
   def testOrdering(mboxType: MailboxType) {
-    val dispatcher = new PriorityDispatcher("Test",
-      PriorityGenerator({
-        case i: Int  ⇒ i //Reverse order
-        case 'Result ⇒ Int.MaxValue
-      }: Any ⇒ Int),
-      throughput = 1,
-      mailboxType = mboxType)
+    val dispatcher = app.dispatcherFactory.newDispatcher("Test", 1, -1, mboxType).build
 
     val actor = actorOf(Props(new Actor {
       var acc: List[Int] = Nil
 
       def receive = {
         case i: Int  ⇒ acc = i :: acc
-        case 'Result ⇒ tryReply(acc)
+        case 'Result ⇒ sender.tell(acc)
       }
     }).withDispatcher(dispatcher)).asInstanceOf[LocalActorRef]
 

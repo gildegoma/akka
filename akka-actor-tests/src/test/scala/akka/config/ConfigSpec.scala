@@ -4,17 +4,17 @@
 
 package akka.config
 
-import org.junit.runner.RunWith
-import org.scalatest.WordSpec
-import org.scalatest.junit.JUnitRunner
-import org.scalatest.matchers.MustMatchers
+import akka.testkit.AkkaSpec
+import akka.AkkaApplication
 
-@RunWith(classOf[JUnitRunner])
-class ConfigSpec extends WordSpec with MustMatchers {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class ConfigSpec extends AkkaSpec(AkkaApplication("ConfigSpec", Configuration.fromFile("config/akka-reference.conf"))) {
 
   "The default configuration file (i.e. akka-reference.conf)" must {
     "contain all configuration properties for akka-actor that are used in code with their correct defaults" in {
-      import Config.config._
+
+      val config = app.config
+      import config._
 
       getList("akka.boot") must equal(Nil)
       getString("akka.time-unit") must equal(Some("seconds"))

@@ -4,18 +4,17 @@
 
 package akka.config
 
-import org.junit.runner.RunWith
-import org.scalatest.WordSpec
-import org.scalatest.junit.JUnitRunner
-import org.scalatest.matchers.MustMatchers
+import akka.testkit.AkkaSpec
 
-@RunWith(classOf[JUnitRunner])
-class ConfigSpec extends WordSpec with MustMatchers {
+import org.junit.runner.RunWith
+import org.scalatest.junit.JUnitRunner
+
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class ConfigSpec extends AkkaSpec {
 
   "The default configuration file (i.e. akka-reference.conf)" should {
     "contain all configuration properties for akka-http that are used in code with their correct defaults" in {
-      import Config.config._
-
+      import app.config._
       getBool("akka.http.connection-close") must equal(Some(true))
       getString("akka.http.expired-header-name") must equal(Some("Async-Timeout"))
       getString("akka.http.hostname") must equal(Some("localhost"))

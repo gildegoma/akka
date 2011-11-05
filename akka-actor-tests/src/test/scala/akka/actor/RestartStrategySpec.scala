@@ -5,277 +5,260 @@
 package akka.actor
 
 import java.lang.Thread.sleep
-
-import org.scalatest.junit.JUnitSuite
-import org.junit.Test
 import org.scalatest.BeforeAndAfterAll
-import akka.event.EventHandler
 import akka.testkit.TestEvent._
 import akka.testkit.EventFilter
-
-import Actor._
 import java.util.concurrent.{ TimeUnit, CountDownLatch }
-import akka.config.Supervision.{ Permanent, LifeCycle, OneForOnePermanentStrategy }
 import org.multiverse.api.latches.StandardLatch
+import akka.testkit.AkkaSpec
 
-class RestartStrategySpec extends JUnitSuite with BeforeAndAfterAll {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class RestartStrategySpec extends AkkaSpec {
 
-  override def beforeAll() {
-    EventHandler.notify(Mute(EventFilter[Exception]("Crashing...")))
+  override def atStartup() {
+    app.eventHandler.notify(Mute(EventFilter[Exception]("Crashing...")))
   }
 
-  override def afterAll() {
-    EventHandler.notify(UnMuteAll)
+  override def atTermination() {
+    app.eventHandler.notify(UnMuteAll)
   }
 
   object Ping
   object Crash
 
-  @Test
-  def slaveShouldStayDeadAfterMaxRestartsWithinTimeRange = {
+  "A RestartStrategy" must {
 
-    val boss = actorOf(Props(new Actor {
-      protected def receive = { case _ ⇒ () }
-    }).withFaultHandler(OneForOnePermanentStrategy(List(classOf[Throwable]), 2, 1000)))
+    "ensure that slave stays dead after max restarts within time range" in {
+      val boss = actorOf(Props[Supervisor].withFaultHandler(OneForOneStrategy(List(classOf[Throwable]), 2, 1000)))
 
-    val restartLatch = new StandardLatch
-    val secondRestartLatch = new StandardLatch
-    val countDownLatch = new CountDownLatch(3)
-    val stopLatch = new StandardLatch
+      val restartLatch = new StandardLatch
+      val secondRestartLatch = new StandardLatch
+      val countDownLatch = new CountDownLatch(3)
+      val stopLatch = new StandardLatch
 
-    val slave = actorOf(Props(new Actor {
+      val slaveProps = Props(new Actor {
 
-      protected def receive = {
-        case Ping  ⇒ countDownLatch.countDown()
-        case Crash ⇒ throw new Exception("Crashing...")
-      }
-      override def postRestart(reason: Throwable) = {
-        if (!restartLatch.isOpen)
-          restartLatch.open
-        else
-          secondRestartLatch.open
-      }
-
-      override def postStop() = {
-        stopLatch.open
-      }
-    }).withSupervisor(boss))
-
-    slave ! Ping
-    slave ! Crash
-    slave ! Ping
-
-    // test restart and post restart ping
-    assert(restartLatch.tryAwait(1, TimeUnit.SECONDS))
-
-    // now crash again... should not restart
-    slave ! Crash
-    slave ! Ping
-
-    assert(secondRestartLatch.tryAwait(1, TimeUnit.SECONDS))
-    assert(countDownLatch.await(1, TimeUnit.SECONDS))
-
-    slave ! Crash
-    assert(stopLatch.tryAwait(1, TimeUnit.SECONDS))
-  }
-
-  @Test
-  def slaveShouldBeImmortalWithoutMaxRestartsAndTimeRange = {
-
-    val boss = actorOf(Props(new Actor {
-      def receive = { case _ ⇒ () }
-    }).withFaultHandler(OneForOnePermanentStrategy(List(classOf[Throwable]), None, None)))
-
-    val countDownLatch = new CountDownLatch(100)
-
-    val slave = actorOf(Props(new Actor {
-
-      protected def receive = {
-        case Crash ⇒ throw new Exception("Crashing...")
-      }
-
-      override def postRestart(reason: Throwable) = {
-        countDownLatch.countDown()
-      }
-    }).withSupervisor(boss))
-
-    (1 to 100) foreach { _ ⇒ slave ! Crash }
-    assert(countDownLatch.await(120, TimeUnit.SECONDS))
-    assert(slave.isRunning)
-  }
-
-  @Test
-  def slaveShouldRestartAfterNumberOfCrashesNotWithinTimeRange = {
-
-    val boss = actorOf(Props(new Actor {
-      def receive = { case _ ⇒ () }
-    }).withFaultHandler(OneForOnePermanentStrategy(List(classOf[Throwable]), 2, 500)))
-
-    val restartLatch = new StandardLatch
-    val secondRestartLatch = new StandardLatch
-    val thirdRestartLatch = new StandardLatch
-    val pingLatch = new StandardLatch
-    val secondPingLatch = new StandardLatch
-
-    val slave = actorOf(Props(new Actor {
-
-      protected def receive = {
-        case Ping ⇒
-          if (!pingLatch.isOpen) pingLatch.open else secondPingLatch.open
-        case Crash ⇒ throw new Exception("Crashing...")
-      }
-      override def postRestart(reason: Throwable) = {
-        if (!restartLatch.isOpen)
-          restartLatch.open
-        else if (!secondRestartLatch.isOpen)
-          secondRestartLatch.open
-        else
-          thirdRestartLatch.open
-      }
-
-      override def postStop() = {
-        if (restartLatch.isOpen) {
-          secondRestartLatch.open
+        protected def receive = {
+          case Ping  ⇒ countDownLatch.countDown()
+          case Crash ⇒ throw new Exception("Crashing...")
         }
-      }
-    }).withSupervisor(boss))
 
-    slave ! Ping
-    slave ! Crash
+        override def postRestart(reason: Throwable) = {
+          if (!restartLatch.isOpen)
+            restartLatch.open
+          else
+            secondRestartLatch.open
+        }
 
-    assert(restartLatch.tryAwait(1, TimeUnit.SECONDS))
-    assert(pingLatch.tryAwait(1, TimeUnit.SECONDS))
+        override def postStop() = {
+          stopLatch.open
+        }
+      })
+      val slave = (boss ? slaveProps).as[ActorRef].get
 
-    slave ! Ping
-    slave ! Crash
-
-    assert(secondRestartLatch.tryAwait(1, TimeUnit.SECONDS))
-    assert(secondPingLatch.tryAwait(1, TimeUnit.SECONDS))
-
-    // sleep to go out of the restart strategy's time range
-    sleep(700L)
-
-    // now crash again... should and post restart ping
-    slave ! Crash
-    slave ! Ping
-
-    assert(thirdRestartLatch.tryAwait(1, TimeUnit.SECONDS))
-
-    assert(slave.isRunning)
-  }
-
-  @Test
-  def slaveShouldNotRestartAfterMaxRetries = {
-    val boss = actorOf(Props(new Actor {
-      def receive = { case _ ⇒ () }
-    }).withFaultHandler(OneForOnePermanentStrategy(List(classOf[Throwable]), Some(2), None)))
-
-    val restartLatch = new StandardLatch
-    val secondRestartLatch = new StandardLatch
-    val countDownLatch = new CountDownLatch(3)
-    val stopLatch = new StandardLatch
-
-    val slave = actorOf(Props(new Actor {
-
-      protected def receive = {
-        case Ping  ⇒ countDownLatch.countDown()
-        case Crash ⇒ throw new Exception("Crashing...")
-      }
-      override def postRestart(reason: Throwable) = {
-        if (!restartLatch.isOpen)
-          restartLatch.open
-        else
-          secondRestartLatch.open
-      }
-
-      override def postStop() = {
-        stopLatch.open
-      }
-    }).withSupervisor(boss))
-
-    slave ! Ping
-    slave ! Crash
-    slave ! Ping
-
-    // test restart and post restart ping
-    assert(restartLatch.tryAwait(1, TimeUnit.SECONDS))
-
-    assert(slave.isRunning)
-
-    // now crash again... should not restart
-    slave ! Crash
-    slave ! Ping
-
-    assert(secondRestartLatch.tryAwait(1, TimeUnit.SECONDS))
-    assert(countDownLatch.await(1, TimeUnit.SECONDS))
-
-    sleep(700L)
-
-    slave ! Crash
-    assert(stopLatch.tryAwait(1, TimeUnit.SECONDS))
-
-    assert(!slave.isRunning)
-  }
-
-  @Test
-  def slaveShouldNotRestartWithinsTimeRange = {
-
-    val restartLatch, stopLatch, maxNoOfRestartsLatch = new StandardLatch
-    val countDownLatch = new CountDownLatch(2)
-
-    val boss = actorOf(Props(new Actor {
-      def receive = { case m: MaximumNumberOfRestartsWithinTimeRangeReached ⇒ maxNoOfRestartsLatch.open }
-    }).withFaultHandler(OneForOnePermanentStrategy(List(classOf[Throwable]), None, Some(1000))))
-
-    val slave = actorOf(Props(new Actor {
-
-      protected def receive = {
-        case Ping  ⇒ countDownLatch.countDown()
-        case Crash ⇒ throw new Exception("Crashing...")
-      }
-
-      override def postRestart(reason: Throwable) = {
-        restartLatch.open
-      }
-
-      override def postStop() = {
-        stopLatch.open
-      }
-    }).withSupervisor(boss))
-
-    slave ! Ping
-    slave ! Crash
-    slave ! Ping
-
-    // test restart and post restart ping
-    assert(restartLatch.tryAwait(1, TimeUnit.SECONDS))
-
-    assert(slave.isRunning)
-
-    // now crash again... should not restart
-    slave ! Crash
-
-    // may not be running
-    try {
       slave ! Ping
-    } catch {
-      case e: ActorInitializationException ⇒ ()
-    }
-
-    assert(countDownLatch.await(1, TimeUnit.SECONDS))
-
-    // may not be running
-    try {
       slave ! Crash
-    } catch {
-      case e: ActorInitializationException ⇒ ()
+      slave ! Ping
+
+      // test restart and post restart ping
+      assert(restartLatch.tryAwait(10, TimeUnit.SECONDS))
+
+      // now crash again... should not restart
+      slave ! Crash
+      slave ! Ping
+
+      assert(secondRestartLatch.tryAwait(10, TimeUnit.SECONDS))
+      assert(countDownLatch.await(10, TimeUnit.SECONDS))
+
+      slave ! Crash
+      assert(stopLatch.tryAwait(10, TimeUnit.SECONDS))
     }
 
-    assert(stopLatch.tryAwait(1, TimeUnit.SECONDS))
+    "ensure that slave is immortal without max restarts and time range" in {
+      val boss = actorOf(Props[Supervisor].withFaultHandler(OneForOneStrategy(List(classOf[Throwable]), None, None)))
 
-    assert(maxNoOfRestartsLatch.tryAwait(1, TimeUnit.SECONDS))
+      val countDownLatch = new CountDownLatch(100)
 
-    assert(!slave.isRunning)
+      val slaveProps = Props(new Actor {
+
+        protected def receive = {
+          case Crash ⇒ throw new Exception("Crashing...")
+        }
+
+        override def postRestart(reason: Throwable) = {
+          countDownLatch.countDown()
+        }
+      })
+      val slave = (boss ? slaveProps).as[ActorRef].get
+
+      (1 to 100) foreach { _ ⇒ slave ! Crash }
+      assert(countDownLatch.await(120, TimeUnit.SECONDS))
+      assert(!slave.isShutdown)
+    }
+
+    "ensure that slave restarts after number of crashes not within time range" in {
+      val boss = actorOf(Props[Supervisor].withFaultHandler(OneForOneStrategy(List(classOf[Throwable]), 2, 500)))
+
+      val restartLatch = new StandardLatch
+      val secondRestartLatch = new StandardLatch
+      val thirdRestartLatch = new StandardLatch
+      val pingLatch = new StandardLatch
+      val secondPingLatch = new StandardLatch
+
+      val slaveProps = Props(new Actor {
+
+        protected def receive = {
+          case Ping ⇒
+            if (!pingLatch.isOpen) pingLatch.open else secondPingLatch.open
+          case Crash ⇒ throw new Exception("Crashing...")
+        }
+        override def postRestart(reason: Throwable) = {
+          if (!restartLatch.isOpen)
+            restartLatch.open
+          else if (!secondRestartLatch.isOpen)
+            secondRestartLatch.open
+          else
+            thirdRestartLatch.open
+        }
+
+        override def postStop() = {
+          if (restartLatch.isOpen) {
+            secondRestartLatch.open
+          }
+        }
+      })
+      val slave = (boss ? slaveProps).as[ActorRef].get
+
+      slave ! Ping
+      slave ! Crash
+
+      assert(restartLatch.tryAwait(10, TimeUnit.SECONDS))
+      assert(pingLatch.tryAwait(10, TimeUnit.SECONDS))
+
+      slave ! Ping
+      slave ! Crash
+
+      assert(secondRestartLatch.tryAwait(10, TimeUnit.SECONDS))
+      assert(secondPingLatch.tryAwait(10, TimeUnit.SECONDS))
+
+      // sleep to go out of the restart strategy's time range
+      sleep(700L)
+
+      // now crash again... should and post restart ping
+      slave ! Crash
+      slave ! Ping
+
+      assert(thirdRestartLatch.tryAwait(1, TimeUnit.SECONDS))
+
+      assert(!slave.isShutdown)
+    }
+
+    "ensure that slave is not restarted after max retries" in {
+      val boss = actorOf(Props[Supervisor].withFaultHandler(OneForOneStrategy(List(classOf[Throwable]), Some(2), None)))
+
+      val restartLatch = new StandardLatch
+      val secondRestartLatch = new StandardLatch
+      val countDownLatch = new CountDownLatch(3)
+      val stopLatch = new StandardLatch
+
+      val slaveProps = Props(new Actor {
+
+        protected def receive = {
+          case Ping  ⇒ countDownLatch.countDown()
+          case Crash ⇒ throw new Exception("Crashing...")
+        }
+        override def postRestart(reason: Throwable) = {
+          if (!restartLatch.isOpen)
+            restartLatch.open
+          else
+            secondRestartLatch.open
+        }
+
+        override def postStop() = {
+          stopLatch.open
+        }
+      })
+      val slave = (boss ? slaveProps).as[ActorRef].get
+
+      slave ! Ping
+      slave ! Crash
+      slave ! Ping
+
+      // test restart and post restart ping
+      assert(restartLatch.tryAwait(10, TimeUnit.SECONDS))
+
+      assert(!slave.isShutdown)
+
+      // now crash again... should not restart
+      slave ! Crash
+      slave ! Ping
+
+      assert(secondRestartLatch.tryAwait(10, TimeUnit.SECONDS))
+      assert(countDownLatch.await(10, TimeUnit.SECONDS))
+
+      sleep(700L)
+
+      slave ! Crash
+      assert(stopLatch.tryAwait(10, TimeUnit.SECONDS))
+      sleep(500L)
+      assert(slave.isShutdown)
+    }
+
+    "ensure that slave is not restarted within time range" in {
+      val restartLatch, stopLatch, maxNoOfRestartsLatch = new StandardLatch
+      val countDownLatch = new CountDownLatch(2)
+
+      val boss = actorOf(Props(new Actor {
+        def receive = {
+          case p: Props      ⇒ sender ! context.actorOf(p)
+          case t: Terminated ⇒ maxNoOfRestartsLatch.open
+        }
+      }).withFaultHandler(OneForOneStrategy(List(classOf[Throwable]), None, Some(1000))))
+
+      val slaveProps = Props(new Actor {
+
+        protected def receive = {
+          case Ping  ⇒ countDownLatch.countDown()
+          case Crash ⇒ throw new Exception("Crashing...")
+        }
+
+        override def postRestart(reason: Throwable) = {
+          restartLatch.open
+        }
+
+        override def postStop() = {
+          stopLatch.open
+        }
+      })
+      val slave = (boss ? slaveProps).as[ActorRef].get
+
+      boss startsMonitoring slave
+
+      slave ! Ping
+      slave ! Crash
+      slave ! Ping
+
+      // test restart and post restart ping
+      assert(restartLatch.tryAwait(10, TimeUnit.SECONDS))
+
+      assert(!slave.isShutdown)
+
+      // now crash again... should not restart
+      slave ! Crash
+
+      // may not be running
+      slave ! Ping
+      assert(countDownLatch.await(10, TimeUnit.SECONDS))
+
+      // may not be running
+      slave ! Crash
+
+      assert(stopLatch.tryAwait(10, TimeUnit.SECONDS))
+
+      assert(maxNoOfRestartsLatch.tryAwait(10, TimeUnit.SECONDS))
+      sleep(500L)
+      assert(slave.isShutdown)
+    }
   }
 }
 

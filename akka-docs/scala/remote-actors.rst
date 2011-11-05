@@ -1,10 +1,12 @@
+.. _remote-actors-scala:
+
 Remote Actors (Scala)
 =====================
 
 .. sidebar:: Contents
 
    .. contents:: :local:
-   
+
 Module stability: **SOLID**
 
 Akka supports starting and interacting with Actors and Typed Actors on remote nodes using a very efficient and scalable NIO implementation built upon `JBoss Netty <http://jboss.org/netty>`_ and `Google Protocol Buffers <http://code.google.com/p/protobuf/>`_ .
@@ -180,9 +182,8 @@ The messages that it prevents are all that extends 'LifeCycleMessage':
 It also prevents the client from invoking any life-cycle and side-effecting methods, such as:
 * start
 * stop
-* link
-* unlink
-* spawnLink
+* startsMonitoring
+* stopsMonitoring
 * etc.
 
 Using secure cookie for remote client authentication

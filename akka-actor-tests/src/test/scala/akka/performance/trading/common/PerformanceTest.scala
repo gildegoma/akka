@@ -1,15 +1,12 @@
 package akka.performance.trading.common
 
 import java.util.Random
-
 import scala.collection.immutable.TreeMap
-
 import org.apache.commons.math.stat.descriptive.DescriptiveStatistics
 import org.apache.commons.math.stat.descriptive.SynchronizedDescriptiveStatistics
 import org.junit.After
 import org.junit.Before
 import org.scalatest.junit.JUnitSuite
-
 import akka.performance.trading.domain.Ask
 import akka.performance.trading.domain.Bid
 import akka.performance.trading.domain.Order
@@ -17,11 +14,12 @@ import akka.performance.trading.domain.TotalTradeCounter
 import akka.performance.workbench.BenchResultRepository
 import akka.performance.workbench.Report
 import akka.performance.workbench.Stats
+import akka.AkkaApplication
+import akka.actor.simpleName
 
 trait PerformanceTest extends JUnitSuite {
 
-  //    jvm parameters
-  //    -server -Xms512m -Xmx1024m -XX:+UseConcMarkSweepGC
+  def app: AkkaApplication
 
   var isWarm = false
 
@@ -49,10 +47,14 @@ trait PerformanceTest extends JUnitSuite {
     System.getProperty("benchmark.timeDilation", "1").toLong
   }
 
+  def sampling = {
+    System.getProperty("benchmark.sampling", "200").toInt
+  }
+
   var stat: DescriptiveStatistics = _
 
   val resultRepository = BenchResultRepository()
-  lazy val report = new Report(resultRepository, compareResultWith)
+  lazy val report = new Report(app, resultRepository, compareResultWith)
 
   type TS <: TradingSystem
 
@@ -61,7 +63,7 @@ trait PerformanceTest extends JUnitSuite {
 
   def createTradingSystem(): TS
 
-  def placeOrder(orderReceiver: TS#OR, order: Order): Rsp
+  def placeOrder(orderReceiver: TS#OR, order: Order, await: Boolean): Rsp
 
   def runScenario(scenario: String, orders: List[Order], repeat: Int, numberOfClients: Int, delayMs: Int)
 
@@ -89,8 +91,8 @@ trait PerformanceTest extends JUnitSuite {
     val loopCount = if (isWarm) 1 else 10 * warmupRepeatFactor
 
     for (i ← 1 to loopCount) {
-      placeOrder(orderReceiver, bid)
-      placeOrder(orderReceiver, ask)
+      placeOrder(orderReceiver, bid, true)
+      placeOrder(orderReceiver, ask, true)
     }
     isWarm = true
   }
@@ -102,32 +104,38 @@ trait PerformanceTest extends JUnitSuite {
   def compareResultWith: Option[String] = None
 
   def logMeasurement(scenario: String, numberOfClients: Int, durationNs: Long) {
+    try {
+      val name = simpleName(this)
+      val durationS = durationNs.toDouble / 1000000000.0
 
-    val name = getClass.getSimpleName
-    val durationS = durationNs.toDouble / 1000000000.0
+      val percentiles = TreeMap[Int, Long](
+        5 -> (stat.getPercentile(5.0) / 1000).toLong,
+        25 -> (stat.getPercentile(25.0) / 1000).toLong,
+        50 -> (stat.getPercentile(50.0) / 1000).toLong,
+        75 -> (stat.getPercentile(75.0) / 1000).toLong,
+        95 -> (stat.getPercentile(95.0) / 1000).toLong)
 
-    val percentiles = TreeMap[Int, Long](
-      5 -> (stat.getPercentile(5.0) / 1000).toLong,
-      25 -> (stat.getPercentile(25.0) / 1000).toLong,
-      50 -> (stat.getPercentile(50.0) / 1000).toLong,
-      75 -> (stat.getPercentile(75.0) / 1000).toLong,
-      95 -> (stat.getPercentile(95.0) / 1000).toLong)
+      val n = stat.getN * sampling
 
-    val stats = Stats(
-      name,
-      load = numberOfClients,
-      timestamp = TestStart.startTime,
-      durationNanos = durationNs,
-      n = stat.getN,
-      min = (stat.getMin / 1000).toLong,
-      max = (stat.getMax / 1000).toLong,
-      mean = (stat.getMean / 1000).toLong,
-      tps = (stat.getN.toDouble / durationS),
-      percentiles)
+      val stats = Stats(
+        name,
+        load = numberOfClients,
+        timestamp = TestStart.startTime,
+        durationNanos = durationNs,
+        n = n,
+        min = (stat.getMin / 1000).toLong,
+        max = (stat.getMax / 1000).toLong,
+        mean = (stat.getMean / 1000).toLong,
+        tps = (n.toDouble / durationS),
+        percentiles)
 
-    resultRepository.add(stats)
+      resultRepository.add(stats)
 
-    report.html(resultRepository.get(name))
+      report.html(resultRepository.get(name))
+    } catch {
+      // don't fail test due to problems saving bench report
+      case e: Exception ⇒ app.eventHandler.error(this, e.getMessage)
+    }
   }
 
   def delay(delayMs: Int) {

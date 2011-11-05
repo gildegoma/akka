@@ -15,4 +15,19 @@ package object actor {
   def uuidFrom(time: Long, clockSeqAndNode: Long): Uuid = new Uuid(time, clockSeqAndNode)
 
   def uuidFrom(uuid: String): Uuid = new Uuid(uuid)
+
+  def simpleName(obj: AnyRef): String = {
+    val n = obj.getClass.getName
+    val i = n.lastIndexOf('.')
+    n.substring(i + 1).replaceAll("\\$+", ".")
+  }
+
+  implicit def future2actor[T](f: akka.dispatch.Future[T]) = new {
+    def pipeTo(actor: ActorRef): this.type = {
+      def send(f: akka.dispatch.Future[T]) { f.value.get.fold(f ⇒ actor ! Status.Failure(f), r ⇒ actor ! r) }
+      if (f.isCompleted) send(f) else f onComplete send
+      this
+    }
+  }
+
 }

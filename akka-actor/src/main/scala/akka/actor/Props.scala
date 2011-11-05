@@ -4,10 +4,10 @@
 
 package akka.actor
 
-import akka.config.Supervision._
 import akka.dispatch._
 import akka.japi.Creator
 import akka.util._
+import collection.immutable.Stack
 
 /**
  * ActorRef configuration object, this is threadsafe and fully sharable
@@ -16,12 +16,21 @@ import akka.util._
  * FIXME document me
  */
 object Props {
+  import FaultHandlingStrategy._
+
   final val defaultCreator: () ⇒ Actor = () ⇒ throw new UnsupportedOperationException("No actor creator specified!")
-  final val defaultDeployId: String = ""
-  final val defaultDispatcher: MessageDispatcher = Dispatchers.defaultGlobalDispatcher
-  final val defaultTimeout: Timeout = Timeout(Duration(Actor.TIMEOUT, "millis"))
-  final val defaultFaultHandler: FaultHandlingStrategy = AllForOnePermanentStrategy(classOf[Exception] :: Nil, None, None)
+  final val defaultDispatcher: MessageDispatcher = null
+  final val defaultTimeout: Timeout = Timeout(Duration.MinusInf)
+  final val defaultDecider: Decider = {
+    case _: ActorInitializationException ⇒ Stop
+    case _: ActorKilledException         ⇒ Stop
+    case _: Exception                    ⇒ Restart
+    case _                               ⇒ Escalate
+  }
+  final val defaultFaultHandler: FaultHandlingStrategy = OneForOneStrategy(defaultDecider, None, None)
   final val defaultSupervisor: Option[ActorRef] = None
+  final val noHotSwap: Stack[Actor.Receive] = Stack.empty
+  final val randomAddress: String = ""
 
   /**
    * The default Props instance, uses the settings from the Props object starting with default*
@@ -32,6 +41,8 @@ object Props {
    * Returns a cached default implementation of Props
    */
   def apply(): Props = default
+
+  val empty = Props(new Actor { def receive = Actor.emptyBehavior })
 
   /**
    * Returns a Props that has default values except for "creator" which will be a function that creates an instance
@@ -59,7 +70,9 @@ object Props {
    */
   def apply(creator: Creator[_ <: Actor]): Props = default.withCreator(creator.create)
 
-  def apply(behavior: ActorRef ⇒ Actor.Receive): Props = apply(new Actor { def receive = behavior(self) })
+  def apply(behavior: ActorContext ⇒ Actor.Receive): Props = apply(new Actor { def receive = behavior(context) })
+
+  def apply(faultHandler: FaultHandlingStrategy): Props = apply(new Actor { def receive = { case _ ⇒ } }).withFaultHandler(faultHandler)
 }
 
 /**
@@ -68,8 +81,7 @@ object Props {
 case class Props(creator: () ⇒ Actor = Props.defaultCreator,
                  @transient dispatcher: MessageDispatcher = Props.defaultDispatcher,
                  timeout: Timeout = Props.defaultTimeout,
-                 faultHandler: FaultHandlingStrategy = Props.defaultFaultHandler,
-                 supervisor: Option[ActorRef] = Props.defaultSupervisor) {
+                 faultHandler: FaultHandlingStrategy = Props.defaultFaultHandler) {
   /**
    * No-args constructor that sets all the default values
    * Java API
@@ -78,8 +90,7 @@ case class Props(creator: () ⇒ Actor = Props.defaultCreator,
     creator = Props.defaultCreator,
     dispatcher = Props.defaultDispatcher,
     timeout = Props.defaultTimeout,
-    faultHandler = Props.defaultFaultHandler,
-    supervisor = Props.defaultSupervisor)
+    faultHandler = Props.defaultFaultHandler)
 
   /**
    * Returns a new Props with the specified creator set
@@ -92,6 +103,12 @@ case class Props(creator: () ⇒ Actor = Props.defaultCreator,
    *  Java API
    */
   def withCreator(c: Creator[Actor]) = copy(creator = () ⇒ c.create)
+
+  /**
+   * Returns a new Props with the specified creator set
+   *  Java API
+   */
+  def withCreator(c: Class[_ <: Actor]) = copy(creator = () ⇒ c.newInstance)
 
   /**
    * Returns a new Props with the specified dispatcher set
@@ -111,21 +128,4 @@ case class Props(creator: () ⇒ Actor = Props.defaultCreator,
    */
   def withFaultHandler(f: FaultHandlingStrategy) = copy(faultHandler = f)
 
-  /**
-   * Returns a new Props with the specified supervisor set, if null, it's equivalent to withSupervisor(Option.none())
-   * Java API
-   */
-  def withSupervisor(s: ActorRef) = copy(supervisor = Option(s))
-
-  /**
-   * Returns a new Props with the specified supervisor set
-   * Java API
-   */
-  def withSupervisor(s: akka.japi.Option[ActorRef]) = copy(supervisor = s.asScala)
-
-  /**
-   * Returns a new Props with the specified supervisor set
-   * Scala API
-   */
-  def withSupervisor(s: scala.Option[ActorRef]) = copy(supervisor = s)
 }

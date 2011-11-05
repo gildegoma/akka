@@ -1,54 +1,71 @@
+
 .. _stm-scala:
 
-Software Transactional Memory (Scala)
-=====================================
+#######################################
+ Software Transactional Memory (Scala)
+#######################################
 
 .. sidebar:: Contents
 
    .. contents:: :local:
-   
-Module stability: **SOLID**
 
 Overview of STM
----------------
+===============
 
-An `STM <http://en.wikipedia.org/wiki/Software_transactional_memory>`_ turns the Java heap into a transactional data set with begin/commit/rollback semantics. Very much like a regular database. It implements the first three letters in ACID; ACI:
+An `STM <http://en.wikipedia.org/wiki/Software_transactional_memory>`_ turns the
+Java heap into a transactional data set with begin/commit/rollback
+semantics. Very much like a regular database. It implements the first three
+letters in ACID; ACI:
+
 * Atomic
 * Consistent
 * Isolated
 
-Generally, the STM is not needed very often when working with Akka. Some use-cases (that we can think of) are:
+Generally, the STM is not needed very often when working with Akka. Some
+use-cases (that we can think of) are:
 
-- When you really need composable message flows across many actors updating their **internal local** state but need them to do that atomically in one big transaction. Might not be often, but when you do need this then you are screwed without it.
+- When you really need composable message flows across many actors updating
+  their **internal local** state but need them to do that atomically in one big
+  transaction. Might not be often, but when you do need this then you are
+  screwed without it.
 - When you want to share a datastructure across actors.
 - When you need to use the persistence modules.
 
-Akka’s STM implements the concept in `Clojure’s <http://clojure.org/>`_ STM view on state in general. Please take the time to read `this excellent document <http://clojure.org/state>`_ and view `this presentation <http://www.infoq.com/presentations/Value-Identity-State-Rich-Hickey>`_ by Rich Hickey (the genius behind Clojure), since it forms the basis of Akka’s view on STM and state in general.
+Akka’s STM implements the concept in `Clojure's <clojure>`_ STM view on state in
+general. Please take the time to read `this excellent document <clojure-state>`_
+and view `this presentation <clojure-presentation>`_ by Rich Hickey (the genius
+behind Clojure), since it forms the basis of Akka’s view on STM and state in
+general.
 
-The STM is based on Transactional References (referred to as Refs). Refs are memory cells, holding an (arbitrary) immutable value, that implement CAS (Compare-And-Swap) semantics and are managed and enforced by the STM for coordinated changes across many Refs. They are implemented using the excellent `Multiverse STM <http://multiverse.codehaus.org/overview.html>`_.
+.. _clojure: http://clojure.org/
+.. _clojure-state: http://clojure.org/state
+.. _clojure-presentation: http://www.infoq.com/presentations/Value-Identity-State-Rich-Hickey
 
-Working with immutable collections can sometimes give bad performance due to extensive copying. Scala provides so-called persistent datastructures which makes working with immutable collections fast. They are immutable but with constant time access and modification. They use structural sharing and an insert or update does not ruin the old structure, hence “persistent”. Makes working with immutable composite types fast. The persistent datastructures currently consist of a Map and Vector.
+The STM is based on Transactional References (referred to as Refs). Refs are
+memory cells, holding an (arbitrary) immutable value, that implement CAS
+(Compare-And-Swap) semantics and are managed and enforced by the STM for
+coordinated changes across many Refs. They are implemented using the excellent
+`Multiverse STM <multiverse>`_.
+
+.. _multiverse: http://multiverse.codehaus.org/overview.html
+
+Working with immutable collections can sometimes give bad performance due to
+extensive copying. Scala provides so-called persistent datastructures which
+makes working with immutable collections fast. They are immutable but with
+constant time access and modification. They use structural sharing and an insert
+or update does not ruin the old structure, hence “persistent”. Makes working
+with immutable composite types fast. The persistent datastructures currently
+consist of a Map and Vector.
+
 
 Simple example
---------------
+==============
 
-Here is a simple example of an incremental counter using STM. This shows creating a ``Ref``, a transactional reference, and then modifying it within a transaction, which is delimited by ``atomic``.
+Here is a simple example of an incremental counter using STM. This shows
+creating a ``Ref``, a transactional reference, and then modifying it within a
+transaction, which is delimited by ``atomic``.
 
-.. code-block:: scala
-
-  import akka.stm._
-
-  val ref = Ref(0)
-
-  def counter = atomic {
-    ref alter (_ + 1)
-  }
-
-  counter
-  // -> 1
-
-  counter
-  // -> 2
+.. includecode:: code/StmDocSpec.scala#simple
 
 
 Ref
@@ -241,20 +258,20 @@ Configuring transactions with an **explicit** ``TransactionFactory``:
 
 The following settings are possible on a TransactionFactory:
 
-- familyName - Family name for transactions. Useful for debugging.
-- readonly - Sets transaction as readonly. Readonly transactions are cheaper.
-- maxRetries - The maximum number of times a transaction will retry.
-- timeout - The maximum time a transaction will block for.
-- trackReads - Whether all reads should be tracked. Needed for blocking operations.
-- writeSkew - Whether writeskew is allowed. Disable with care.
-- blockingAllowed - Whether explicit retries are allowed.
-- interruptible - Whether a blocking transaction can be interrupted.
-- speculative - Whether speculative configuration should be enabled.
-- quickRelease - Whether locks should be released as quickly as possible (before whole commit).
-- propagation - For controlling how nested transactions behave.
-- traceLevel - Transaction trace level.
+- ``familyName`` - Family name for transactions. Useful for debugging.
+- ``readonly`` - Sets transaction as readonly. Readonly transactions are cheaper.
+- ``maxRetries`` - The maximum number of times a transaction will retry.
+- ``timeout`` - The maximum time a transaction will block for.
+- ``trackReads`` - Whether all reads should be tracked. Needed for blocking operations.
+- ``writeSkew`` - Whether writeskew is allowed. Disable with care.
+- ``blockingAllowed`` - Whether explicit retries are allowed.
+- ``interruptible`` - Whether a blocking transaction can be interrupted.
+- ``speculative`` - Whether speculative configuration should be enabled.
+- ``quickRelease`` - Whether locks should be released as quickly as possible (before whole commit).
+- ``propagation`` - For controlling how nested transactions behave.
+- ``traceLevel`` - Transaction trace level.
 
-You can also specify the default values for some of these options in akka.conf. Here they are with their default values:
+You can also specify the default values for some of these options in ``akka.conf``. Here they are with their default values:
 
 ::
 
@@ -444,12 +461,12 @@ Transactional datastructures
 
 Akka provides two datastructures that are managed by the STM.
 
-- TransactionalMap
-- TransactionalVector
+- ``TransactionalMap``
+- ``TransactionalVector``
 
-TransactionalMap and TransactionalVector look like regular mutable datastructures, they even implement the standard Scala 'Map' and 'RandomAccessSeq' interfaces, but they are implemented using persistent datastructures and managed references under the hood. Therefore they are safe to use in a concurrent environment. Underlying TransactionalMap is HashMap, an immutable Map but with near constant time access and modification operations. Similarly TransactionalVector uses a persistent Vector. See the Persistent Datastructures section below for more details.
+``TransactionalMap`` and ``TransactionalVector`` look like regular mutable datastructures, they even implement the standard Scala 'Map' and 'RandomAccessSeq' interfaces, but they are implemented using persistent datastructures and managed references under the hood. Therefore they are safe to use in a concurrent environment. Underlying TransactionalMap is HashMap, an immutable Map but with near constant time access and modification operations. Similarly ``TransactionalVector`` uses a persistent Vector. See the Persistent Datastructures section below for more details.
 
-Like managed references, TransactionalMap and TransactionalVector can only be modified inside the scope of an STM transaction.
+Like managed references, ``TransactionalMap`` and ``TransactionalVector`` can only be modified inside the scope of an STM transaction.
 
 *IMPORTANT*: There have been some problems reported when using transactional datastructures with 'lazy' initialization. Avoid that.
 
@@ -471,9 +488,9 @@ Here is how you create these transactional datastructures:
   val map = TransactionalMap[String, User]
   val vector = TransactionalVector[Address]
 
-TransactionalMap and TransactionalVector wrap persistent datastructures with transactional references and provide a standard Scala interface. This makes them convenient to use.
+``TransactionalMap`` and ``TransactionalVector`` wrap persistent datastructures with transactional references and provide a standard Scala interface. This makes them convenient to use.
 
-Here is an example of using a Ref and a HashMap directly:
+Here is an example of using a ``Ref`` and a ``HashMap`` directly:
 
 .. code-block:: scala
 
@@ -495,7 +512,7 @@ Here is an example of using a Ref and a HashMap directly:
   }
   // -> User("bill")
 
-Here is the same example using TransactionalMap:
+Here is the same example using ``TransactionalMap``:
 
 .. code-block:: scala
 
@@ -519,8 +536,9 @@ Persistent datastructures
 -------------------------
 
 Akka's STM should only be used with immutable data. This can be costly if you have large datastructures and are using a naive copy-on-write. In order to make working with immutable datastructures fast enough Scala provides what are called Persistent Datastructures. There are currently two different ones:
-* HashMap (`scaladoc <http://www.scala-lang.org/api/current/scala/collection/immutable/HashMap.html>`__)
-* Vector (`scaladoc <http://www.scala-lang.org/api/current/scala/collection/immutable/Vector.html>`__)
+
+* ``HashMap`` (`scaladoc <http://www.scala-lang.org/api/current/scala/collection/immutable/HashMap.html>`__)
+* ``Vector`` (`scaladoc <http://www.scala-lang.org/api/current/scala/collection/immutable/Vector.html>`__)
 
 They are immutable and each update creates a completely new version but they are using clever structural sharing in order to make them almost as fast, for both read and update, as regular mutable datastructures.
 

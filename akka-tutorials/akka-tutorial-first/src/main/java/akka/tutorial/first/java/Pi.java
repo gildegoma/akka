@@ -4,15 +4,16 @@
 
 package akka.tutorial.first.java;
 
-import static akka.actor.Actors.actorOf;
 import static akka.actor.Actors.poisonPill;
 import static java.util.Arrays.asList;
 
 import akka.actor.ActorRef;
+import akka.actor.Actors;
 import akka.actor.UntypedActor;
 import akka.actor.UntypedActorFactory;
 import akka.routing.RoutedProps;
 import akka.routing.RouterType;
+import akka.routing.LocalConnectionManager;
 import akka.routing.Routing;
 import akka.routing.Routing.Broadcast;
 import scala.collection.JavaConversions;
@@ -20,7 +21,11 @@ import scala.collection.JavaConversions;
 import java.util.LinkedList;
 import java.util.concurrent.CountDownLatch;
 
+import akka.AkkaApplication;
+
 public class Pi {
+
+  private static final AkkaApplication app = new AkkaApplication();
 
   public static void main(String[] args) throws Exception {
     Pi pi = new Pi();
@@ -78,7 +83,7 @@ public class Pi {
         double result = calculatePiFor(work.getStart(), work.getNrOfElements());
 
         // reply with the result
-        reply(new Result(result));
+        getSender().tell(new Result(result));
 
       } else throw new IllegalArgumentException("Unknown message [" + message + "]");
     }
@@ -105,11 +110,11 @@ public class Pi {
 
       LinkedList<ActorRef> workers = new LinkedList<ActorRef>();
       for (int i = 0; i < nrOfWorkers; i++) {
-          ActorRef worker = actorOf(Worker.class, "worker");
+          ActorRef worker = app.actorOf(Worker.class);
           workers.add(worker);
       }
 
-      router = Routing.actorOf(RoutedProps.apply().withRoundRobinRouter().withConnections(workers), "pi");
+      router = app.actorOf(new RoutedProps().withRoundRobinRouter().withLocalConnections(workers), "pi");
     }
 
     // message handler
@@ -163,11 +168,11 @@ public class Pi {
     final CountDownLatch latch = new CountDownLatch(1);
 
     // create the master
-    ActorRef master = actorOf(new UntypedActorFactory() {
+    ActorRef master = app.actorOf(new UntypedActorFactory() {
       public UntypedActor create() {
         return new Master(nrOfWorkers, nrOfMessages, nrOfElements, latch);
       }
-    }, "master");
+    });
 
     // start the calculation
     master.tell(new Calculate());

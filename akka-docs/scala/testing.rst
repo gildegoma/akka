@@ -152,7 +152,7 @@ into a :class:`TestActorRef`.
 
 .. code-block:: scala
 
-   val actorRef = TestActorRef(new MyActor)
+   val actorRef = TestActorRef(new MyActor).start()
    val result = (actorRef ? Say42).as[Int] // hypothetical message stimulating a '42' answer
    result must be (Some(42))
 
@@ -742,7 +742,7 @@ options:
 
 * *Logging of the actor lifecycle*
 
-  Actor creation, start, restart, link, unlink and stop may be traced by
+  Actor creation, start, restart, monitor start, monitor stop and stop may be traced by
   enabling the setting ``akka.actor.debug.lifecycle``; this, too, is enabled
   uniformly on all actors.
 

@@ -11,7 +11,6 @@ import org.scalatest.matchers.MustMatchers
 
 import akka.actor.Actor._
 import akka.actor._
-import akka.config.Supervision._
 
 /**
  * @author Martin Krasser
@@ -139,15 +138,15 @@ class ConsumerScalaTest extends WordSpec with BeforeAndAfterAll with MustMatcher
 
   "An non auto-acknowledging consumer" when {
     "started" must {
-      "must support acknowledgements on application level" in {
+      "must support acknowledgements on app level" in {
 
         var consumer: ActorRef = null
 
         service.awaitEndpointActivation(1) {
-          consumer = actorOf(new TestAckConsumer("direct:application-ack-test"))
+          consumer = actorOf(new TestAckConsumer("direct:app-ack-test"))
         } must be(true)
 
-        val endpoint = mandatoryContext.getEndpoint("direct:application-ack-test", classOf[DirectEndpoint])
+        val endpoint = mandatoryContext.getEndpoint("direct:app-ack-test", classOf[DirectEndpoint])
         val producer = endpoint.createProducer.asInstanceOf[AsyncProcessor]
         val exchange = endpoint.createExchange
 
@@ -178,7 +177,7 @@ class ConsumerScalaTest extends WordSpec with BeforeAndAfterAll with MustMatcher
       val consumer = Actor.actorOf(new SupervisedConsumer("reply-channel-test-2"))
       val supervisor = Supervisor(
         SupervisorConfig(
-          OneForOnePermanentStrategy(List(classOf[Exception]), 2, 10000),
+          OneForOneStrategy(List(classOf[Exception]), 2, 10000),
           Supervise(consumer, Permanent) :: Nil))
 
       val latch = new CountDownLatch(1)
@@ -192,7 +191,7 @@ class ConsumerScalaTest extends WordSpec with BeforeAndAfterAll with MustMatcher
       val consumer = Actor.actorOf(Props(new SupervisedConsumer("reply-channel-test-3")))
       val supervisor = Supervisor(
         SupervisorConfig(
-          OneForOneTemporaryStrategy(List(classOf[Exception])),
+          OneForOneStrategy(List(classOf[Exception]), Some(0)),
           Supervise(consumer, Temporary) :: Nil))
 
       val latch = new CountDownLatch(1)
@@ -212,7 +211,7 @@ object ConsumerScalaTest {
   class TestConsumer(uri: String) extends Actor with Consumer {
     def endpointUri = uri
     protected def receive = {
-      case msg: Message ⇒ reply("received %s" format msg.body)
+      case msg: Message ⇒ sender ! "received %s" format msg.body
     }
   }
 
@@ -227,7 +226,7 @@ object ConsumerScalaTest {
     def endpointUri = uri
     override def autoack = false
     protected def receive = {
-      case msg: Message ⇒ reply(Ack)
+      case msg: Message ⇒ sender ! Ack
     }
   }
 
@@ -248,15 +247,15 @@ object ConsumerScalaTest {
 
     protected def receive = {
       case "fail"    ⇒ { throw new Exception("test") }
-      case "succeed" ⇒ reply("ok")
+      case "succeed" ⇒ sender ! "ok"
     }
 
     override def preRestart(reason: scala.Throwable, msg: Option[Any]) {
-      tryReply("pr")
+      sender.tell("pr")
     }
 
     override def postStop {
-      tryReply("ps")
+      sender.tell("ps")
     }
   }
 
@@ -289,7 +288,7 @@ object ConsumerScalaTest {
     }
 
     private def respondTo(msg: Message) =
-      if (valid) reply("accepted: %s" format msg.body)
+      if (valid) sender ! ("accepted: %s" format msg.body)
       else throw new Exception("rejected: %s" format msg.body)
 
   }

@@ -4,14 +4,10 @@
 
 package akka.actor
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
-
 import akka.testkit._
 
-import Actor._
-
-class HotSwapSpec extends WordSpec with MustMatchers {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class HotSwapSpec extends AkkaSpec {
 
   "An Actor" must {
 

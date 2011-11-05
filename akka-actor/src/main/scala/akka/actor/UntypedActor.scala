@@ -6,7 +6,6 @@ package akka.actor
 
 import akka.japi.{ Creator, Procedure }
 import akka.dispatch.{ MessageDispatcher, Promise }
-import java.util.{ Collection ⇒ JCollection }
 
 /**
  * Subclass this abstract class to create a MDB-style untyped actor.
@@ -22,16 +21,12 @@ import java.util.{ Collection ⇒ JCollection }
  *
  *        if (msg.equals("UseReply")) {
  *          // Reply to original sender of message using the 'reply' method
- *          reply(msg + ":" + getSelf().getAddress());
+ *          getContext().getSender().tell(msg + ":" + getSelf().getAddress());
  *
  *        } else if (msg.equals("UseSender") && getSender().isDefined()) {
  *          // Reply to original sender of message using the sender reference
  *          // also passing along my own reference (the self)
  *          getSender().get().tell(msg, getSelf());
- *
- *        } else if (msg.equals("UseSenderFuture") && getSenderFuture().isDefined()) {
- *          // Reply to original sender of message using the sender future reference
- *          getSenderFuture().get().completeWithResult(msg);
  *
  *        } else if (msg.equals("SendToSelf")) {
  *          // Send message to the actor itself recursively
@@ -72,18 +67,7 @@ abstract class UntypedActor extends Actor {
    * The reference sender Actor of the last received message.
    * Is defined if the message was sent from another Actor, else None.
    */
-  def getSender: Option[ActorRef] = sender
-
-  /**
-   * The reference sender future of the last received message.
-   * Is defined if the message was sent with sent with '?'/'ask', else None.
-   */
-  def getSenderFuture: Option[Promise[Any]] = senderFuture
-
-  /**
-   * Abstraction for unification of sender and senderFuture for later reply
-   */
-  def getChannel: UntypedChannel = channel
+  def getSender(): ActorRef = sender
 
   /**
    * Gets the current receive timeout
@@ -101,7 +85,10 @@ abstract class UntypedActor extends Actor {
    * Returns an unmodifiable Java Collection containing the linked actors,
    * please note that the backing map is thread-safe but not immutable
    */
-  def getLinkedActors: JCollection[ActorRef] = linkedActors
+  def getChildren(): java.lang.Iterable[ActorRef] = {
+    import scala.collection.JavaConverters.asJavaIterableConverter
+    asJavaIterableConverter(context.children).asJava
+  }
 
   /**
    * Returns the dispatcher (MessageDispatcher) that is used for this Actor

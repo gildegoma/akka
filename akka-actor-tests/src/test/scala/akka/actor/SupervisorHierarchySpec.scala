@@ -4,11 +4,6 @@
 
 package akka.actor
 
-import org.scalatest.junit.JUnitSuite
-import org.junit.Test
-
-import Actor._
-import akka.config.Supervision.OneForOnePermanentStrategy
 import akka.testkit._
 
 import java.util.concurrent.{ TimeUnit, CountDownLatch }
@@ -17,52 +12,62 @@ object SupervisorHierarchySpec {
   class FireWorkerException(msg: String) extends Exception(msg)
 
   class CountDownActor(countDown: CountDownLatch) extends Actor {
-    protected def receive = { case _ ⇒ }
-    override def postRestart(reason: Throwable) = countDown.countDown()
+    protected def receive = {
+      case p: Props ⇒ sender ! context.actorOf(p)
+    }
+    override def postRestart(reason: Throwable) = {
+      countDown.countDown()
+    }
   }
 }
 
-class SupervisorHierarchySpec extends JUnitSuite {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class SupervisorHierarchySpec extends AkkaSpec {
   import SupervisorHierarchySpec._
 
-  @Test
-  def killWorkerShouldRestartMangerAndOtherWorkers = {
-    val countDown = new CountDownLatch(4)
+  "A Supervisor Hierarchy" must {
 
-    val boss = actorOf(Props(self ⇒ { case _ ⇒ }).withFaultHandler(OneForOnePermanentStrategy(List(classOf[Throwable]), 5, 1000)))
+    "restart manager and workers in AllForOne" in {
+      val countDown = new CountDownLatch(4)
 
-    val manager = actorOf(Props(new CountDownActor(countDown)).withFaultHandler(OneForOnePermanentStrategy(List(), None, None)).withSupervisor(boss))
+      val boss = actorOf(Props[Supervisor].withFaultHandler(OneForOneStrategy(List(classOf[Exception]), None, None)))
 
-    val workerOne, workerTwo, workerThree = actorOf(Props(new CountDownActor(countDown)).withSupervisor(manager))
+      val managerProps = Props(new CountDownActor(countDown)).withFaultHandler(AllForOneStrategy(List(), None, None))
+      val manager = (boss ? managerProps).as[ActorRef].get
 
-    filterException[ActorKilledException] {
-      workerOne ! Kill
+      val workerProps = Props(new CountDownActor(countDown))
+      val workerOne, workerTwo, workerThree = (manager ? workerProps).as[ActorRef].get
 
-      // manager + all workers should be restarted by only killing a worker
-      // manager doesn't trap exits, so boss will restart manager
+      filterException[ActorKilledException] {
+        workerOne ! Kill
 
-      assert(countDown.await(2, TimeUnit.SECONDS))
-    }
-  }
+        // manager + all workers should be restarted by only killing a worker
+        // manager doesn't trap exits, so boss will restart manager
 
-  @Test
-  def supervisorShouldReceiveNotificationMessageWhenMaximumNumberOfRestartsWithinTimeRangeIsReached = {
-    val countDownMessages = new CountDownLatch(1)
-    val countDownMax = new CountDownLatch(1)
-    val boss = actorOf(Props(new Actor {
-      protected def receive = {
-        case MaximumNumberOfRestartsWithinTimeRangeReached(_, _, _, _) ⇒ countDownMax.countDown()
+        assert(countDown.await(2, TimeUnit.SECONDS))
       }
-    }).withFaultHandler(OneForOnePermanentStrategy(List(classOf[Throwable]), 1, 5000)))
+    }
 
-    val crasher = actorOf(Props(new CountDownActor(countDownMessages)).withSupervisor(boss))
+    "send notification to supervisor when permanent failure" in {
+      val countDownMessages = new CountDownLatch(1)
+      val countDownMax = new CountDownLatch(1)
+      val boss = actorOf(Props(new Actor {
+        val crasher = context.actorOf(Props(new CountDownActor(countDownMessages)))
+        self startsMonitoring crasher
 
-    filterException[ActorKilledException] {
-      crasher ! Kill
-      crasher ! Kill
+        protected def receive = {
+          case "killCrasher" ⇒ crasher ! Kill
+          case Terminated(_) ⇒ countDownMax.countDown()
+        }
+      }).withFaultHandler(OneForOneStrategy(List(classOf[Throwable]), 1, 5000)))
 
-      assert(countDownMessages.await(2, TimeUnit.SECONDS))
-      assert(countDownMax.await(2, TimeUnit.SECONDS))
+      filterException[ActorKilledException] {
+        boss ! "killCrasher"
+        boss ! "killCrasher"
+
+        assert(countDownMessages.await(2, TimeUnit.SECONDS))
+        assert(countDownMax.await(2, TimeUnit.SECONDS))
+      }
     }
   }
 }

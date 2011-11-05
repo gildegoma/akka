@@ -5,14 +5,14 @@ import Keys._
 import com.typesafe.sbtmultijvm.MultiJvmPlugin
 import MultiJvmPlugin.{ MultiJvm, extraOptions, jvmOptions, scalatestOptions }
 import com.typesafe.sbtscalariform.ScalariformPlugin
-import ScalariformPlugin.{ format, formatPreferences }
+import ScalariformPlugin.{ format, formatPreferences, formatSourceDirectories }
 import java.lang.Boolean.getBoolean
 
 object AkkaBuild extends Build {
   System.setProperty("akka.mode", "test") // Is there better place for this?
 
   lazy val buildSettings = Seq(
-    organization := "se.scalablesolutions.akka",
+    organization := "com.typesafe.akka",
     version      := "2.0-SNAPSHOT",
     scalaVersion := "2.9.1"
   )
@@ -25,7 +25,7 @@ object AkkaBuild extends Build {
       Unidoc.unidocExclude := Seq(samples.id, tutorials.id),
       rstdocDirectory <<= baseDirectory / "akka-docs"
     ),
-    aggregate = Seq(actor, testkit, actorTests, stm, http, remote, slf4j, samples, tutorials)
+    aggregate = Seq(actor, testkit, actorTests, stm, http, remote, slf4j, akkaSbtPlugin, samples, tutorials, docs)
     //aggregate = Seq(actor, testkit, actorTests, stm, http, slf4j, cluster, mailboxes, camel, camelTyped, samples, tutorials)
   )
 
@@ -35,7 +35,9 @@ object AkkaBuild extends Build {
     settings = defaultSettings ++ Seq(
       autoCompilerPlugins := true,
       libraryDependencies <+= scalaVersion { v => compilerPlugin("org.scala-lang.plugins" % "continuations" % v) },
-      scalacOptions += "-P:continuations:enable"
+      scalacOptions += "-P:continuations:enable",
+      // to fix scaladoc generation
+      fullClasspath in doc in Compile <<= fullClasspath in Compile
     )
   )
 
@@ -51,7 +53,7 @@ object AkkaBuild extends Build {
   lazy val actorTests = Project(
     id = "akka-actor-tests",
     base = file("akka-actor-tests"),
-    dependencies = Seq(testkit),
+    dependencies = Seq(testkit % "compile;test->test"),
     settings = defaultSettings ++ Seq(
       autoCompilerPlugins := true,
       libraryDependencies <+= scalaVersion { v => compilerPlugin("org.scala-lang.plugins" % "continuations" % v) },
@@ -63,7 +65,7 @@ object AkkaBuild extends Build {
   lazy val stm = Project(
     id = "akka-stm",
     base = file("akka-stm"),
-    dependencies = Seq(actor, testkit % "test"),
+    dependencies = Seq(actor, testkit % "test->test"),
     settings = defaultSettings ++ Seq(
       libraryDependencies ++= Dependencies.stm
     )
@@ -72,7 +74,7 @@ object AkkaBuild extends Build {
   lazy val remote = Project(
     id = "akka-remote",
     base = file("akka-remote"),
-    dependencies = Seq(stm, actorTests % "test->test", testkit % "test"),
+    dependencies = Seq(stm, actorTests % "test->test", testkit % "test->test"),
     settings = defaultSettings ++ multiJvmSettings ++ Seq(
       libraryDependencies ++= Dependencies.cluster,
       extraOptions in MultiJvm <<= (sourceDirectory in MultiJvm) { src =>
@@ -106,7 +108,7 @@ object AkkaBuild extends Build {
   lazy val http = Project(
     id = "akka-http",
     base = file("akka-http"),
-    dependencies = Seq(actor, testkit % "test"),
+    dependencies = Seq(actor, testkit % "test->test"),
     settings = defaultSettings ++ Seq(
       libraryDependencies ++= Dependencies.http
     )
@@ -115,7 +117,7 @@ object AkkaBuild extends Build {
   lazy val slf4j = Project(
     id = "akka-slf4j",
     base = file("akka-slf4j"),
-    dependencies = Seq(actor, testkit % "test"),
+    dependencies = Seq(actor, testkit % "test->test"),
     settings = defaultSettings ++ Seq(
       libraryDependencies ++= Dependencies.slf4j
     )
@@ -226,6 +228,14 @@ object AkkaBuild extends Build {
   //   )
   // )
 
+  lazy val akkaSbtPlugin = Project(
+    id = "akka-sbt-plugin",
+    base = file("akka-sbt-plugin"),
+    settings = defaultSettings ++ Seq(
+      sbtPlugin := true
+    )
+  )
+
   lazy val samples = Project(
     id = "akka-samples",
     base = file("akka-samples"),
@@ -297,6 +307,17 @@ object AkkaBuild extends Build {
     base = file("akka-tutorials/akka-tutorial-second"),
     dependencies = Seq(actor),
     settings = defaultSettings
+  )
+
+  lazy val docs = Project(
+    id = "akka-docs",
+    base = file("akka-docs"),
+    dependencies = Seq(actor, testkit % "test->test", stm, http, remote, slf4j),
+    settings = defaultSettings ++ Seq(
+      unmanagedSourceDirectories in Test <<= baseDirectory { _ ** "code" get },
+      libraryDependencies ++= Dependencies.docs,
+      formatSourceDirectories in Test <<= unmanagedSourceDirectories in Test
+    )
   )
 
   // Settings
@@ -381,7 +402,7 @@ object AkkaBuild extends Build {
 object Dependencies {
   import Dependency._
 
-  val testkit = Seq(Test.scalatest)
+  val testkit = Seq(Test.scalatest, Test.junit)
 
   val actorTests = Seq(
     Test.junit, Test.scalatest, Test.multiverse, Test.commonsMath, Test.mockito,
@@ -423,6 +444,8 @@ object Dependencies {
   // TODO: resolve Jetty version conflict
   // val sampleCamel = Seq(camelCore, camelSpring, commonsCodec, Runtime.camelJms, Runtime.activemq, Runtime.springJms,
   //   Test.junit, Test.scalatest, Test.logback)
+
+  val docs = Seq(Test.scalatest, Test.junit)
 }
 
 object Dependency {

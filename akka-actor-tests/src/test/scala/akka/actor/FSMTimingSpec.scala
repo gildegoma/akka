@@ -4,18 +4,16 @@
 
 package akka.actor
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
-
-import akka.testkit.TestKit
+import akka.testkit.{ AkkaSpec, ImplicitSender }
 import akka.util.Duration
 import akka.util.duration._
 
-class FSMTimingSpec extends WordSpec with MustMatchers with TestKit {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class FSMTimingSpec extends AkkaSpec with ImplicitSender {
   import FSMTimingSpec._
   import FSM._
 
-  val fsm = Actor.actorOf(new StateMachine(testActor))
+  val fsm = actorOf(new StateMachine(testActor))
   fsm ! SubscribeTransitionCallBack(testActor)
   expectMsg(200 millis, CurrentState(fsm, Initial))
 
@@ -46,7 +44,7 @@ class FSMTimingSpec extends WordSpec with MustMatchers with TestKit {
     }
 
     "receive single-shot timer" in {
-      within(50 millis, 150 millis) {
+      within(50 millis, 250 millis) {
         fsm ! TestSingleTimer
         expectMsg(Tick)
         expectMsg(Transition(fsm, TestSingleTimer, Initial))

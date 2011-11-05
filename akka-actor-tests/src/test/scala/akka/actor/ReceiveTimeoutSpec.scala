@@ -4,17 +4,13 @@
 
 package akka.actor
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
-
 import akka.testkit._
 import akka.util.duration._
 
-import Actor._
 import java.util.concurrent.atomic.AtomicInteger
 
-class ReceiveTimeoutSpec extends WordSpec with MustMatchers {
-  import Actor._
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class ReceiveTimeoutSpec extends AkkaSpec {
 
   "An actor with receive timeout" must {
 

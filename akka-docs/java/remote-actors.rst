@@ -180,9 +180,8 @@ The messages that it prevents are all that extends 'LifeCycleMessage':
 It also prevents the client from invoking any life-cycle and side-effecting methods, such as:
 * start
 * stop
-* link
-* unlink
-* spawnLink
+* startsMonitoring
+* stopsMonitoring
 * etc.
 
 Using secure cookie for remote client authentication
@@ -354,7 +353,7 @@ Client side usage
   import static akka.actor.Actors.*;
   ActorRef actor = remote().actorFor("hello-service", "localhost", 2552);
 
-  Object result = actor.sendRequestReply("Hello");
+  Object result = actor.ask("Hello").get();
 
 There are many variations on the 'remote()#actorFor' method. Here are some of them:
 

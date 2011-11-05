@@ -4,16 +4,10 @@
 
 package akka.actor
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
-import org.scalatest.BeforeAndAfterEach
-
 import akka.testkit._
+import org.scalatest.BeforeAndAfterEach
 import akka.testkit.Testing.sleepFor
 import akka.util.duration._
-
-import Actor._
-import akka.config.Supervision._
 import akka.dispatch.Dispatchers
 
 object ActorFireForgetRequestReplySpec {
@@ -21,9 +15,9 @@ object ActorFireForgetRequestReplySpec {
   class ReplyActor extends Actor {
     def receive = {
       case "Send" ⇒
-        reply("Reply")
+        sender ! "Reply"
       case "SendImplicit" ⇒
-        channel ! "ReplyImplicit"
+        sender ! "ReplyImplicit"
     }
   }
 
@@ -57,7 +51,8 @@ object ActorFireForgetRequestReplySpec {
   }
 }
 
-class ActorFireForgetRequestReplySpec extends WordSpec with MustMatchers with BeforeAndAfterEach {
+@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
+class ActorFireForgetRequestReplySpec extends AkkaSpec with BeforeAndAfterEach {
   import ActorFireForgetRequestReplySpec._
 
   override def beforeEach() = {
@@ -84,9 +79,9 @@ class ActorFireForgetRequestReplySpec extends WordSpec with MustMatchers with Be
 
     "should shutdown crashed temporary actor" in {
       filterEvents(EventFilter[Exception]("Expected")) {
-        val supervisor = actorOf(Props(self ⇒ { case _ ⇒ }).withFaultHandler(OneForOneTemporaryStrategy(List(classOf[Exception]))))
-        val actor = actorOf(Props[CrashingActor].withSupervisor(supervisor))
-        actor.isRunning must be(true)
+        val supervisor = actorOf(Props[Supervisor].withFaultHandler(OneForOneStrategy(List(classOf[Exception]), Some(0))))
+        val actor = (supervisor ? Props[CrashingActor]).as[ActorRef].get
+        actor.isShutdown must be(false)
         actor ! "Die"
         state.finished.await
         sleepFor(1 second)

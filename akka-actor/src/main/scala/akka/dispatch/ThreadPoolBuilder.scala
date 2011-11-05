@@ -8,9 +8,9 @@ import java.util.Collection
 import java.util.concurrent._
 import atomic.{ AtomicLong, AtomicInteger }
 import ThreadPoolExecutor.CallerRunsPolicy
-
 import akka.util.Duration
 import akka.event.EventHandler
+import akka.AkkaApplication
 
 object ThreadPoolConfig {
   type Bounds = Int
@@ -51,15 +51,25 @@ object ThreadPoolConfig {
   }
 }
 
+/**
+ * Function0 without the fun stuff (mostly for the sake of the Java API side of things)
+ */
 trait ExecutorServiceFactory {
   def createExecutorService: ExecutorService
 }
 
+/**
+ * Generic way to specify an ExecutorService to a Dispatcher, create it with the given name if desired
+ */
 trait ExecutorServiceFactoryProvider {
   def createExecutorServiceFactory(name: String): ExecutorServiceFactory
 }
 
-case class ThreadPoolConfig(allowCorePoolTimeout: Boolean = ThreadPoolConfig.defaultAllowCoreThreadTimeout,
+/**
+ * A small configuration DSL to create ThreadPoolExecutors that can be provided as an ExecutorServiceFactoryProvider to Dispatcher
+ */
+case class ThreadPoolConfig(app: AkkaApplication,
+                            allowCorePoolTimeout: Boolean = ThreadPoolConfig.defaultAllowCoreThreadTimeout,
                             corePoolSize: Int = ThreadPoolConfig.defaultCorePoolSize,
                             maxPoolSize: Int = ThreadPoolConfig.defaultMaxPoolSize,
                             threadTimeout: Duration = ThreadPoolConfig.defaultTimeout,
@@ -76,7 +86,7 @@ case class ThreadPoolConfig(allowCorePoolTimeout: Boolean = ThreadPoolConfig.def
       case Right(bounds) ⇒
         val service = new ThreadPoolExecutor(corePoolSize, maxPoolSize, threadTimeout.length, threadTimeout.unit, queueFactory(), threadFactory)
         service.allowCoreThreadTimeOut(allowCorePoolTimeout)
-        new BoundedExecutorDecorator(service, bounds)
+        new BoundedExecutorDecorator(app, service, bounds)
     }
   }
 }
@@ -89,6 +99,9 @@ object ThreadPoolConfigDispatcherBuilder {
   def conf_?[T](opt: Option[T])(fun: (T) ⇒ ThreadPoolConfigDispatcherBuilder ⇒ ThreadPoolConfigDispatcherBuilder): Option[(ThreadPoolConfigDispatcherBuilder) ⇒ ThreadPoolConfigDispatcherBuilder] = opt map fun
 }
 
+/**
+ * A DSL to configure and create a MessageDispatcher with a ThreadPoolExecutor
+ */
 case class ThreadPoolConfigDispatcherBuilder(dispatcherFactory: (ThreadPoolConfig) ⇒ MessageDispatcher, config: ThreadPoolConfig) extends DispatcherBuilder {
   import ThreadPoolConfig._
   def build = dispatcherFactory(config)
@@ -197,7 +210,7 @@ class MonitorableThread(runnable: Runnable, name: String)
 /**
  * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
-class BoundedExecutorDecorator(val executor: ExecutorService, bound: Int) extends ExecutorServiceDelegate {
+class BoundedExecutorDecorator(val app: AkkaApplication, val executor: ExecutorService, bound: Int) extends ExecutorServiceDelegate {
   protected val semaphore = new Semaphore(bound)
 
   override def execute(command: Runnable) = {
@@ -214,15 +227,18 @@ class BoundedExecutorDecorator(val executor: ExecutorService, bound: Int) extend
       })
     } catch {
       case e: RejectedExecutionException ⇒
-        EventHandler.warning(this, e.toString)
+        app.eventHandler.warning(this, e.toString)
         semaphore.release
       case e: Throwable ⇒
-        EventHandler.error(e, this, e.getMessage)
+        app.eventHandler.error(e, this, e.getMessage)
         throw e
     }
   }
 }
 
+/**
+ * As the name says
+ */
 trait ExecutorServiceDelegate extends ExecutorService {
 
   def executor: ExecutorService
@@ -254,6 +270,9 @@ trait ExecutorServiceDelegate extends ExecutorService {
   def invokeAny[T](callables: Collection[_ <: Callable[T]], l: Long, timeUnit: TimeUnit) = executor.invokeAny(callables, l, timeUnit)
 }
 
+/**
+ * An ExecutorService that only creates the underlying Executor if any of the methods of the ExecutorService are called
+ */
 trait LazyExecutorService extends ExecutorServiceDelegate {
 
   def createExecutor: ExecutorService
@@ -263,6 +282,9 @@ trait LazyExecutorService extends ExecutorServiceDelegate {
   }
 }
 
+/**
+ * A concrete implementation of LazyExecutorService (Scala API)
+ */
 class LazyExecutorServiceWrapper(executorFactory: ⇒ ExecutorService) extends LazyExecutorService {
   def createExecutor = executorFactory
 }

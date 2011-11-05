@@ -5,7 +5,6 @@ package akka.actor
 
 import akka.util.ByteString
 import akka.event.EventHandler
-
 import java.net.InetSocketAddress
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicReference
@@ -20,12 +19,12 @@ import java.nio.channels.{
   SelectionKey,
   CancelledKeyException
 }
-
 import scala.collection.mutable
 import scala.collection.immutable.Queue
 import scala.annotation.tailrec
 import scala.collection.generic.CanBuildFrom
 import com.eaio.uuid.UUID
+import akka.AkkaApplication
 
 object IO {
 
@@ -362,7 +361,7 @@ class IOManager(bufferSize: Int = 8192) extends Actor {
   var worker: IOWorker = _
 
   override def preStart {
-    worker = new IOWorker(self, bufferSize, dispatcher)
+    worker = new IOWorker(app, self, bufferSize)
     worker.run
   }
 
@@ -399,7 +398,7 @@ private[akka] object IOWorker {
   case object Shutdown extends Request
 }
 
-private[akka] class IOWorker(ioManager: ActorRef, val bufferSize: Int, dispatcher: akka.dispatch.MessageDispatcher) {
+private[akka] class IOWorker(app: AkkaApplication, ioManager: ActorRef, val bufferSize: Int) {
   import SelectionKey.{ OP_READ, OP_WRITE, OP_ACCEPT, OP_CONNECT }
   import IOWorker._
 
@@ -460,7 +459,7 @@ private[akka] class IOWorker(ioManager: ActorRef, val bufferSize: Int, dispatche
     }
   }
 
-  def run() { dispatcher dispatchTask select }
+  def run() { app.dispatcher dispatchTask select }
 
   private def process(key: SelectionKey) {
     val handle = key.attachment.asInstanceOf[IO.Handle]
@@ -499,12 +498,8 @@ private[akka] class IOWorker(ioManager: ActorRef, val bufferSize: Int, dispatche
       case Some(channel) ⇒
         channel.close
         channels -= handle
-        try {
-          handle.owner ! IO.Closed(handle, cause)
-        } catch {
-          case e: ActorInitializationException ⇒
-            EventHandler debug (this, "IO.Handle's owner not running")
-        }
+        // TODO: what if handle.owner is no longer running?
+        handle.owner ! IO.Closed(handle, cause)
       case None ⇒
     }
   }
