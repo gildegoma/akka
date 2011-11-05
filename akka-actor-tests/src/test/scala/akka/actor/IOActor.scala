@@ -20,7 +20,7 @@ object IOActorSpec {
 
     started.open
 
-    val state = IO.IterateeRef.Map[IO.Handle]()
+    val state = IO.IterateeRef.Map.sync[IO.Handle]()
 
     def receive = {
 
@@ -48,7 +48,7 @@ object IOActorSpec {
 
     val socket = IO connect (ioManager, host, port)
 
-    val state = IO.IterateeRef()
+    val state = IO.IterateeRef.sync()
 
     def receive = {
 
@@ -90,7 +90,7 @@ object IOActorSpec {
   // Basic Redis-style protocol
   class KVStore(host: String, port: Int, ioManager: ActorRef, started: TestLatch) extends Actor {
 
-    val state = IO.IterateeRef.Map[IO.Handle]()
+    val state = IO.IterateeRef.Map.sync[IO.Handle]()
 
     var kvs: Map[String, String] = Map.empty
 
@@ -156,7 +156,7 @@ object IOActorSpec {
 
     val socket = IO connect (ioManager, host, port)
 
-    val state = IO.IterateeRef()
+    val state = IO.IterateeRef.sync()
 
     val EOL = ByteString("\r\n")
 
@@ -167,7 +167,7 @@ object IOActorSpec {
         for {
           _ ← state
           result ← readResult
-        } yield result.fold(err ⇒ throw new RuntimeException(err), source !)
+        } yield result.fold(err ⇒ source ! Status.Failure(new RuntimeException(err)), source !)
 
       case IO.Read(socket, bytes) ⇒
         state(IO Chunk bytes)
