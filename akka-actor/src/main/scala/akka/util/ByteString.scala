@@ -44,21 +44,18 @@ object ByteString {
     def apply(bytes: Array[Byte]) = new ByteString1(bytes)
   }
 
-  final class ByteString1 private (bytes: Array[Byte], startIndex: Int, endIndex: Int) extends ByteString {
+  final class ByteString1 private (private val bytes: Array[Byte], private val startIndex: Int, val length: Int) extends ByteString {
 
     private def this(bytes: Array[Byte]) = this(bytes, 0, bytes.length)
 
     def apply(idx: Int): Byte = bytes(checkRangeConvert(idx))
 
     private def checkRangeConvert(index: Int) = {
-      val idx = index + startIndex
-      if (0 <= index && idx < endIndex)
-        idx
+      if (0 <= index && length > index)
+        index + startIndex
       else
         throw new IndexOutOfBoundsException(index.toString)
     }
-
-    def length: Int = endIndex - startIndex
 
     def toArray: Array[Byte] = {
       val ar = new Array[Byte](length)
@@ -69,8 +66,7 @@ object ByteString {
     override def clone: ByteString = new ByteString1(toArray)
 
     def compact: ByteString =
-      if (startIndex == 0 && endIndex == bytes.length) this
-      else clone
+      if (length == bytes.length) this else clone
 
     def asByteBuffer: ByteBuffer = {
       val buffer = ByteBuffer.wrap(bytes, startIndex, length).asReadOnlyBuffer
@@ -79,7 +75,7 @@ object ByteString {
     }
 
     def decodeString(charset: String): String =
-      new String(if (startIndex == 0 && endIndex == bytes.length) bytes else toArray, charset)
+      new String(if (length == bytes.length) bytes else toArray, charset)
 
     def ++(that: ByteString): ByteString = that match {
       case b: ByteString1  ⇒ ByteStrings(this, b)
@@ -88,9 +84,9 @@ object ByteString {
 
     override def slice(from: Int, until: Int): ByteString = {
       val newStartIndex = math.max(from, 0) + startIndex
-      val newEndIndex = math.min(until, length) + startIndex
-      if (newEndIndex <= newStartIndex) ByteString.empty
-      else new ByteString1(bytes, newStartIndex, newEndIndex)
+      val newLength = math.min(until, length) - from
+      if (newLength <= 0) ByteString.empty
+      else new ByteString1(bytes, newStartIndex, newLength)
     }
 
     override def copyToArray[A >: Byte](xs: Array[A], start: Int, len: Int): Unit =
@@ -157,25 +153,29 @@ object ByteString {
       if (end <= start)
         ByteString.empty
       else {
+        val iter = bytestrings.iterator
+        var cur = iter.next
         var pos = 0
         var seen = 0
-        while (from >= seen + bytestrings(pos).length) {
-          seen += bytestrings(pos).length
+        while (from >= seen + cur.length) {
+          seen += cur.length
           pos += 1
+          cur = iter.next
         }
         val startpos = pos
         val startidx = start - seen
-        while (until > seen + bytestrings(pos).length) {
-          seen += bytestrings(pos).length
+        while (until > seen + cur.length) {
+          seen += cur.length
           pos += 1
+          cur = iter.next
         }
         val endpos = pos
         val endidx = end - seen
         if (startpos == endpos)
-          bytestrings(startpos).slice(startidx, endidx)
+          cur.slice(startidx, endidx)
         else {
           val first = bytestrings(startpos).drop(startidx).asInstanceOf[ByteString1]
-          val last = bytestrings(endpos).take(endidx).asInstanceOf[ByteString1]
+          val last = cur.take(endidx).asInstanceOf[ByteString1]
           if ((endpos - startpos) == 1)
             new ByteStrings(Vector(first, last))
           else
