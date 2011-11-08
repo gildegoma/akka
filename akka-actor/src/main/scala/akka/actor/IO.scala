@@ -147,28 +147,16 @@ object IO {
    */
   sealed abstract class Iteratee[+A] {
 
-    final def apply(input: Input): Iteratee[A] = this match {
-      case Cont(f) ⇒ f(input) match {
-        case (iter, rest @ Chunk(bytes)) if bytes.nonEmpty ⇒ Cont(more ⇒ (iter, rest ++ more))
-        case (iter, _)                                     ⇒ iter
-      }
-      case iter ⇒ input match {
-        /**
-         * FIXME: will not automatically feed input into next continuation until 'apply'
-         * is called again with more Input. Possibly need to implment Enumerator to make
-         * this automatic, as it would then be able to store unused Input. Another solution
-         * is to add a 'rest: Input' variable to Done, although this can have weird edge
-         * cases (my original implementation did that, I did not like it).
-         *
-         * As a workaround, an empty Chunk can be input to the Iteratee once it is able to
-         * process the waiting Input (see 'flatMap' for an automatic workaround).
-         */
-        case _: Chunk ⇒ Cont(more ⇒ (iter, input ++ more))
-        case _        ⇒ iter
-      }
+    /**
+     * Applies the given input to the Iteratee, returning the resulting Iteratee
+     * and the unused Input.
+     */
+    final def apply(input: Input): (Iteratee[A], Input) = this match {
+      case Cont(f) ⇒ f(input)
+      case iter    ⇒ (iter, input)
     }
 
-    final def get: A = this(EOF(None)) match {
+    final def get: A = this(EOF(None))._1 match {
       case Done(value) ⇒ value
       case Cont(_)     ⇒ sys.error("Divergent Iteratee")
       case Failure(e)  ⇒ throw e
@@ -177,7 +165,7 @@ object IO {
     final def flatMap[B](f: A ⇒ Iteratee[B]): Iteratee[B] = this match {
       case Done(value)       ⇒ f(value)
       case Cont(k: Chain[_]) ⇒ Cont(k :+ f)
-      case Cont(k)           ⇒ Cont(Chain(k, f)) //(Chunk.empty) <- uncomment for workaround to above FIXME
+      case Cont(k)           ⇒ Cont(Chain(k, f))
       case failure: Failure  ⇒ failure
     }
 
@@ -244,20 +232,26 @@ object IO {
   }
 
   final class IterateeRefSync[A](initial: Iteratee[A]) extends IterateeRef[A] {
-    private var _value = initial
-    def flatMap(f: A ⇒ Iteratee[A]): Unit = _value = _value flatMap f
-    def map(f: A ⇒ A): Unit = _value = _value map f
-    def apply(input: Input): Unit = _value = _value(input)
-    def value: Iteratee[A] = _value
+    private var _value: (Iteratee[A], Input) = (initial, Chunk.empty)
+    def flatMap(f: A ⇒ Iteratee[A]): Unit = _value = _value match {
+      case (iter, chunk @ Chunk(bytes)) if bytes.nonEmpty ⇒ (iter flatMap f)(chunk)
+      case (iter, input)                                  ⇒ (iter flatMap f, input)
+    }
+    def map(f: A ⇒ A): Unit = _value = (_value._1 map f, _value._2)
+    def apply(input: Input): Unit = _value = _value._1(_value._2 ++ input)
+    def value: (Iteratee[A], Input) = _value
   }
 
   final class IterateeRefAsync[A](initial: Iteratee[A])(implicit app: AkkaApplication) extends IterateeRef[A] {
     import akka.dispatch.Future
-    private var _value = Future(initial)
-    def flatMap(f: A ⇒ Iteratee[A]): Unit = _value = _value map (_ flatMap f)
-    def map(f: A ⇒ A): Unit = _value = _value map (_ map f)
-    def apply(input: Input): Unit = _value = _value map (_(input))
-    def future: Future[Iteratee[A]] = _value
+    private var _value: Future[(Iteratee[A], Input)] = Future((initial, Chunk.empty))
+    def flatMap(f: A ⇒ Iteratee[A]): Unit = _value = _value map {
+      case (iter, chunk @ Chunk(bytes)) if bytes.nonEmpty ⇒ (iter flatMap f)(chunk)
+      case (iter, input)                                  ⇒ (iter flatMap f, input)
+    }
+    def map(f: A ⇒ A): Unit = _value = _value map (v ⇒ (v._1 map f, v._2))
+    def apply(input: Input): Unit = _value = _value map (v ⇒ v._1(v._2 ++ input))
+    def future: Future[(Iteratee[A], Input)] = _value
   }
 
   /**
@@ -311,6 +305,22 @@ object IO {
     }
 
     Cont(step(ByteString.empty))
+  }
+
+  /**
+   * An Iteratee that ignores the specified number of bytes.
+   */
+  def drop(length: Int): Iteratee[Unit] = {
+    def step(left: Int)(input: Input): (Iteratee[Unit], Input) = input match {
+      case Chunk(more) ⇒
+        if (left > more.length)
+          (Cont(step(left - more.length)), Chunk.empty)
+        else
+          (Done(), Chunk(more drop left))
+      case eof ⇒ (Done(), eof)
+    }
+
+    Cont(step(length))
   }
 
   /**
