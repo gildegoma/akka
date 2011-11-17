@@ -5,19 +5,16 @@
 package akka.actor
 
 import org.scalatest.BeforeAndAfterEach
-import akka.testkit.Testing.sleepFor
 import akka.util.duration._
 import akka.{ Die, Ping }
 import akka.actor.Actor._
 import akka.testkit.TestEvent._
-import akka.testkit.{ EventFilter, ImplicitSender }
+import akka.testkit.{ EventFilter, ImplicitSender, AkkaSpec, filterEvents }
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.LinkedBlockingQueue
-import akka.testkit.AkkaSpec
 
 object SupervisorSpec {
   val Timeout = 5 seconds
-  val TimeoutMillis = Timeout.dilated.toMillis.toInt
 
   case object DieReply
 
@@ -70,6 +67,8 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
 
   import SupervisorSpec._
 
+  val TimeoutMillis = Timeout.dilated.toMillis.toInt
+
   // =====================================================
   // Creating actors and supervisors
   // =====================================================
@@ -121,14 +120,8 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
     (pingpong1, pingpong2, pingpong3, topSupervisor)
   }
 
-  override def atStartup() = {
-    app.eventHandler notify Mute(EventFilter[Exception]("Die"),
-      EventFilter[IllegalStateException]("Don't wanna!"),
-      EventFilter[RuntimeException]("Expected"))
-  }
-
-  override def atTermination() = {
-    app.eventHandler notify UnMuteAll
+  override def atStartup() {
+    app.eventStream.publish(Mute(EventFilter[RuntimeException](ExceptionMessage)))
   }
 
   override def beforeEach() = {
@@ -302,9 +295,12 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       })
       val dyingActor = (supervisor ? dyingProps).as[ActorRef].get
 
-      intercept[RuntimeException] {
-        (dyingActor.?(DieReply, TimeoutMillis)).get
-      }
+      filterEvents(EventFilter[RuntimeException]("Expected", occurrences = 1),
+        EventFilter[IllegalStateException]("error while creating actor", occurrences = 1)) {
+          intercept[RuntimeException] {
+            (dyingActor.?(DieReply, TimeoutMillis)).get
+          }
+        }
 
       (dyingActor.?(Ping, TimeoutMillis)).as[String] must be === Some(PongMessage)
 

@@ -6,16 +6,78 @@ package akka.routing
 
 import akka.AkkaException
 import akka.actor._
-import akka.event.EventHandler
 import akka.config.ConfigurationException
 import akka.dispatch.{ Future, MessageDispatcher }
-import akka.AkkaApplication
-import akka.util.ReflectiveAccess
+import akka.util.{ ReflectiveAccess, Duration }
 import java.net.InetSocketAddress
 import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.atomic.{ AtomicReference, AtomicInteger }
 
 import scala.annotation.tailrec
+
+sealed trait RouterType
+
+/**
+ * Used for declarative configuration of Routing.
+ *
+ * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
+ */
+object RouterType {
+
+  object Direct extends RouterType
+
+  /**
+   * A RouterType that randomly selects a connection to send a message to.
+   */
+  object Random extends RouterType
+
+  /**
+   * A RouterType that selects the connection by using round robin.
+   */
+  object RoundRobin extends RouterType
+
+  /**
+   * A RouterType that selects the connection by using scatter gather.
+   */
+  object ScatterGather extends RouterType
+
+  /**
+   * A RouterType that selects the connection based on the least amount of cpu usage
+   */
+  object LeastCPU extends RouterType
+
+  /**
+   * A RouterType that select the connection based on the least amount of ram used.
+   */
+  object LeastRAM extends RouterType
+
+  /**
+   * A RouterType that select the connection where the actor has the least amount of messages in its mailbox.
+   */
+  object LeastMessages extends RouterType
+
+  /**
+   * A user-defined custom RouterType.
+   */
+  case class Custom(implClass: String) extends RouterType
+}
+
+/**
+ * Contains the configuration to create local and clustered routed actor references.
+ * Routed ActorRef configuration object, this is thread safe and fully sharable.
+ */
+case class RoutedProps private[akka] (
+  routerFactory: () ⇒ Router = RoutedProps.defaultRouterFactory,
+  connectionManager: ConnectionManager = new LocalConnectionManager(List()),
+  timeout: Timeout = RoutedProps.defaultTimeout,
+  localOnly: Boolean = RoutedProps.defaultLocalOnly) {
+}
+
+object RoutedProps {
+  final val defaultTimeout = Timeout(Duration.MinusInf)
+  final val defaultRouterFactory = () ⇒ new RoundRobinRouter
+  final val defaultLocalOnly = false
+}
 
 /**
  * The Router is responsible for sending a message to one (or more) of its connections. Connections are stored in the
@@ -93,10 +155,10 @@ object Routing {
 /**
  * An Abstract convenience implementation for building an ActorReference that uses a Router.
  */
-abstract private[akka] class AbstractRoutedActorRef(val app: AkkaApplication, val props: RoutedProps) extends UnsupportedActorRef {
+abstract private[akka] class AbstractRoutedActorRef(val app: ActorSystem, val props: RoutedProps) extends MinimalActorRef {
   val router = props.routerFactory()
 
-  override def postMessageToMailbox(message: Any, sender: ActorRef) = router.route(message)(sender)
+  override def !(message: Any)(implicit sender: ActorRef = null): Unit = router.route(message)(sender)
 
   override def ?(message: Any)(implicit timeout: Timeout): Future[Any] = router.route(message, timeout)
 }
@@ -105,7 +167,12 @@ abstract private[akka] class AbstractRoutedActorRef(val app: AkkaApplication, va
  * A RoutedActorRef is an ActorRef that has a set of connected ActorRef and it uses a Router to send a message to
  * on (or more) of these actors.
  */
-private[akka] class RoutedActorRef(app: AkkaApplication, val routedProps: RoutedProps, override val address: String) extends AbstractRoutedActorRef(app, routedProps) {
+private[akka] class RoutedActorRef(app: ActorSystem, val routedProps: RoutedProps, val supervisor: ActorRef, override val name: String) extends AbstractRoutedActorRef(app, routedProps) {
+
+  val path = supervisor.path / name
+
+  // FIXME (actor path): address normally has host and port, what about routed actor ref?
+  def address = "routed:/" + path.toString
 
   @volatile
   private var running: Boolean = true

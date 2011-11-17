@@ -9,7 +9,6 @@ import org.scalatest.matchers.MustMatchers
 
 import akka.testkit._
 import akka.util.duration._
-import akka.testkit.Testing.sleepFor
 import java.lang.IllegalStateException
 import akka.util.ReflectiveAccess
 import akka.dispatch.{ DefaultPromise, Promise, Future }
@@ -19,8 +18,6 @@ import java.util.concurrent.{ CountDownLatch, TimeUnit }
 object ActorRefSpec {
 
   case class ReplyTo(sender: ActorRef)
-
-  val latch = TestLatch(4)
 
   class ReplyActor extends Actor {
     var replyTo: ActorRef = null
@@ -53,11 +50,11 @@ object ActorRefSpec {
     }
 
     private def work {
-      sleepFor(1 second)
+      1.second.dilated.sleep
     }
   }
 
-  class SenderActor(replyActor: ActorRef) extends Actor {
+  class SenderActor(replyActor: ActorRef, latch: TestLatch) extends Actor {
 
     def receive = {
       case "complex"  ⇒ replyActor ! "complexRequest"
@@ -277,35 +274,22 @@ class ActorRefSpec extends AkkaSpec {
 
       (intercept[java.lang.IllegalStateException] {
         in.readObject
-      }).getMessage must be === "Trying to deserialize a serialized ActorRef without an AkkaApplication in scope." +
+      }).getMessage must be === "Trying to deserialize a serialized ActorRef without an ActorSystem in scope." +
         " Use akka.serialization.Serialization.app.withValue(akkaApplication) { ... }"
     }
 
-    "must throw exception on deserialize if not present in local registry and remoting is not enabled" in {
-      val latch = new CountDownLatch(1)
-      val a = actorOf(new InnerActor {
-        override def postStop {
-          // app.registry.unregister(self)
-          latch.countDown
-        }
-      })
-
-      val inetAddress = app.defaultAddress
-
-      val expectedSerializedRepresentation = new SerializedActorRef(a.address, inetAddress)
-
+    "must throw exception on deserialize if not present in actor hierarchy (and remoting is not enabled)" in {
       import java.io._
 
       val baos = new ByteArrayOutputStream(8192 * 32)
       val out = new ObjectOutputStream(baos)
 
-      out.writeObject(a)
+      val serialized = SerializedActorRef(app.address.hostname, app.address.port, "/this/path/does/not/exist")
+
+      out.writeObject(serialized)
 
       out.flush
       out.close
-
-      a.stop()
-      latch.await(5, TimeUnit.SECONDS) must be === true
 
       Serialization.app.withValue(app) {
         val in = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray))
@@ -339,8 +323,9 @@ class ActorRefSpec extends AkkaSpec {
     }
 
     "support reply via sender" in {
+      val latch = new TestLatch(4)
       val serverRef = actorOf(Props[ReplyActor])
-      val clientRef = actorOf(Props(new SenderActor(serverRef)))
+      val clientRef = actorOf(Props(new SenderActor(serverRef, latch)))
 
       clientRef ! "complex"
       clientRef ! "simple"

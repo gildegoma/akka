@@ -20,7 +20,7 @@ class DeathWatchSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
     "notify with one Terminated message when an Actor is stopped" in {
       val terminal = actorOf(Props(context ⇒ { case _ ⇒ }))
 
-      testActor startsMonitoring terminal
+      testActor startsWatching terminal
 
       testActor ! "ping"
       expectMsg("ping")
@@ -67,7 +67,7 @@ class DeathWatchSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
 
       monitor2 ! "ping"
 
-      expectMsg("pong") //Needs to be here since startsMonitoring and stopsMonitoring are asynchronous
+      expectMsg("pong") //Needs to be here since startsWatching and stopsWatching are asynchronous
 
       terminal ! PoisonPill
 
@@ -103,25 +103,25 @@ class DeathWatchSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
     }
 
     "fail a monitor which does not handle Terminated()" in {
-      filterEvents(EventFilter[ActorKilledException], EventFilter[DeathPactException]) {
+      filterEvents(EventFilter[ActorKilledException](), EventFilter[DeathPactException]()) {
         case class FF(fail: Failed)
         val supervisor = actorOf(Props[Supervisor]
           .withFaultHandler(new OneForOneStrategy(FaultHandlingStrategy.makeDecider(List(classOf[Exception])), Some(0)) {
-            override def handleFailure(fail: Failed, stats: ChildRestartStats, children: Iterable[(ActorRef, ChildRestartStats)]) = {
-              testActor ! FF(fail)
-              super.handleFailure(fail, stats, children)
+            override def handleFailure(child: ActorRef, cause: Throwable, stats: ChildRestartStats, children: Iterable[(ActorRef, ChildRestartStats)]) = {
+              testActor.tell(FF(Failed(cause)), child)
+              super.handleFailure(child, cause, stats, children)
             }
           }))
 
         val failed, brother = (supervisor ? Props.empty).as[ActorRef].get
-        brother startsMonitoring failed
-        testActor startsMonitoring brother
+        brother startsWatching failed
+        testActor startsWatching brother
 
         failed ! Kill
         val result = receiveWhile(3 seconds, messages = 3) {
-          case FF(Failed(`failed`, _: ActorKilledException))       ⇒ 1
-          case FF(Failed(`brother`, DeathPactException(`failed`))) ⇒ 2
-          case Terminated(`brother`)                               ⇒ 3
+          case FF(Failed(_: ActorKilledException)) if lastSender eq failed ⇒ 1
+          case FF(Failed(DeathPactException(`failed`))) if lastSender eq brother ⇒ 2
+          case Terminated(`brother`) ⇒ 3
         }
         testActor must not be 'shutdown
         result must be(Seq(1, 2, 3))

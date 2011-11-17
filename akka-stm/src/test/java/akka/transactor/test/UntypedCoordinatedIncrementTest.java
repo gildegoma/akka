@@ -6,7 +6,7 @@ import org.junit.After;
 import org.junit.Test;
 import org.junit.Before;
 
-import akka.AkkaApplication;
+import akka.actor.ActorSystem;
 import akka.transactor.Coordinated;
 import akka.actor.Actors;
 import akka.actor.ActorRef;
@@ -14,7 +14,6 @@ import akka.actor.Props;
 import akka.actor.UntypedActor;
 import akka.actor.UntypedActorFactory;
 import akka.dispatch.Future;
-import akka.event.EventHandler;
 import akka.testkit.EventFilter;
 import akka.testkit.ErrorFilter;
 import akka.testkit.TestEvent;
@@ -31,7 +30,7 @@ import scala.collection.JavaConverters;
 import scala.collection.Seq;
 
 public class UntypedCoordinatedIncrementTest {
-    AkkaApplication application = new AkkaApplication("UntypedCoordinatedIncrementTest");
+    ActorSystem application = new ActorSystem("UntypedCoordinatedIncrementTest");
 
     List<ActorRef> counters;
     ActorRef failer;
@@ -72,7 +71,7 @@ public class UntypedCoordinatedIncrementTest {
         EventFilter expectedFailureFilter = (EventFilter) new ErrorFilter(ExpectedFailureException.class);
         EventFilter coordinatedFilter = (EventFilter) new ErrorFilter(CoordinatedTransactionException.class);
         Seq<EventFilter> ignoreExceptions = seq(expectedFailureFilter, coordinatedFilter);
-        application.eventHandler().notify(new TestEvent.Mute(ignoreExceptions));
+        application.eventStream().publish(new TestEvent.Mute(ignoreExceptions));
         CountDownLatch incrementLatch = new CountDownLatch(numCounters);
         List<ActorRef> actors = new ArrayList<ActorRef>(counters);
         actors.add(failer);
@@ -85,7 +84,6 @@ public class UntypedCoordinatedIncrementTest {
             Future future = counter.ask("GetCount", askTimeout);
             assertEquals(0, ((Integer)future.get()).intValue());
         }
-        application.eventHandler().notify(new TestEvent.UnMute(ignoreExceptions));
     }
 
     public <A> Seq<A> seq(A... args) {

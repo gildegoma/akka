@@ -6,7 +6,6 @@ package akka.actor
 import org.scalatest.WordSpec
 import org.scalatest.matchers.MustMatchers
 import akka.util.duration._
-import akka.testkit.Testing.sleepFor
 import akka.dispatch.Dispatchers
 import akka.actor.Actor._
 import akka.testkit.{ TestKit, EventFilter, filterEvents, filterException }
@@ -19,7 +18,7 @@ class SupervisorTreeSpec extends AkkaSpec with ImplicitSender {
   "In a 3 levels deep supervisor tree (linked in the constructor) we" must {
 
     "be able to kill the middle actor and see itself and its child restarted" in {
-      filterException[ActorKilledException] {
+      EventFilter[ActorKilledException](occurrences = 1) intercept {
         within(5 seconds) {
           val p = Props(new Actor {
             def receive = {

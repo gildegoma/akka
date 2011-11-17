@@ -3,13 +3,15 @@
  */
 
 package akka.util
+
 import akka.dispatch.Envelope
 import akka.actor._
 import DeploymentConfig.ReplicationScheme
 import akka.config.ModuleNotAvailableException
+import akka.event.Logging.Debug
 import akka.cluster.ClusterNode
 import akka.routing.{ RoutedProps, Router }
-import akka.AkkaApplication
+import akka.actor.ActorSystem
 
 object ReflectiveAccess {
 
@@ -115,7 +117,7 @@ object ReflectiveAccess {
  *
  * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
-class ReflectiveAccess(val app: AkkaApplication) {
+class ReflectiveAccess(val app: ActorSystem) {
 
   import ReflectiveAccess._
 
@@ -127,7 +129,7 @@ class ReflectiveAccess(val app: AkkaApplication) {
   }
 
   def createProvider: ActorRefProvider = {
-    val params: Array[Class[_]] = Array(classOf[AkkaApplication])
+    val params: Array[Class[_]] = Array(classOf[ActorSystem])
     val args: Array[AnyRef] = Array(app)
 
     createInstance[ActorRefProvider](providerClass, params, args) match {

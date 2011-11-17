@@ -4,7 +4,7 @@
 package akka.actor.dispatch
 
 import org.scalatest.Assertions._
-import akka.testkit.{ Testing, filterEvents, EventFilter, AkkaSpec }
+import akka.testkit.{ filterEvents, EventFilter, AkkaSpec }
 import akka.dispatch._
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.{ ConcurrentHashMap, CountDownLatch, TimeUnit }
@@ -13,8 +13,9 @@ import java.rmi.RemoteException
 import org.junit.{ After, Test }
 import akka.actor._
 import util.control.NoStackTrace
-import akka.AkkaApplication
+import akka.actor.ActorSystem
 import akka.util.duration._
+import akka.event.Logging.Error
 
 object ActorModelSpec {
 
@@ -98,7 +99,6 @@ object ActorModelSpec {
 
   trait MessageDispatcherInterceptor extends MessageDispatcher {
     val stats = new ConcurrentHashMap[ActorRef, InterceptorStats]
-    val starts = new AtomicLong(0)
     val stops = new AtomicLong(0)
 
     def getStats(actorRef: ActorRef) = {
@@ -134,11 +134,6 @@ object ActorModelSpec {
       super.dispatch(receiver, invocation)
     }
 
-    protected[akka] abstract override def start() {
-      starts.incrementAndGet()
-      super.start()
-    }
-
     protected[akka] abstract override def shutdown() {
       stops.incrementAndGet()
       super.shutdown()
@@ -146,32 +141,26 @@ object ActorModelSpec {
   }
 
   def assertDispatcher(dispatcher: MessageDispatcherInterceptor)(
-    starts: Long = dispatcher.starts.get(),
-    stops: Long = dispatcher.stops.get())(implicit app: AkkaApplication) {
+    stops: Long = dispatcher.stops.get())(implicit app: ActorSystem) {
     val deadline = System.currentTimeMillis + dispatcher.timeoutMs * 5
     try {
-      await(deadline)(starts == dispatcher.starts.get)
       await(deadline)(stops == dispatcher.stops.get)
     } catch {
       case e ⇒
-        app.eventHandler.error(e, dispatcher, "actual: starts=" + dispatcher.starts.get + ",stops=" + dispatcher.stops.get +
-          " required: starts=" + starts + ",stops=" + stops)
+        app.eventStream.publish(Error(e, dispatcher, "actual: stops=" + dispatcher.stops.get +
+          " required: stops=" + stops))
         throw e
     }
   }
 
-  def assertCountDown(latch: CountDownLatch, wait: Long, hint: AnyRef) {
-    try {
-      assert(latch.await(wait, TimeUnit.MILLISECONDS) === true)
-    } catch {
-      case e ⇒
-        System.err.println("assertCountDown failed was: " + latch.getCount)
-        throw e
-    }
+  def assertCountDown(latch: CountDownLatch, wait: Long, hint: String) {
+    if (!latch.await(wait, TimeUnit.MILLISECONDS))
+      fail("Failed to count down within " + wait + " millis (count at " + latch.getCount + "). " + hint)
   }
 
-  def assertNoCountDown(latch: CountDownLatch, wait: Long, hint: AnyRef) {
-    assert(latch.await(wait, TimeUnit.MILLISECONDS) === false)
+  def assertNoCountDown(latch: CountDownLatch, wait: Long, hint: String) {
+    if (latch.await(wait, TimeUnit.MILLISECONDS))
+      fail("Expected count down to fail after " + wait + " millis. " + hint)
   }
 
   def statsFor(actorRef: ActorRef, dispatcher: MessageDispatcher = null) =
@@ -184,7 +173,7 @@ object ActorModelSpec {
     unregisters: Long = 0,
     msgsReceived: Long = 0,
     msgsProcessed: Long = 0,
-    restarts: Long = 0)(implicit app: AkkaApplication) {
+    restarts: Long = 0)(implicit app: ActorSystem) {
     assertRef(actorRef, dispatcher)(
       suspensions,
       resumes,
@@ -202,7 +191,7 @@ object ActorModelSpec {
     unregisters: Long = statsFor(actorRef).unregisters.get(),
     msgsReceived: Long = statsFor(actorRef).msgsReceived.get(),
     msgsProcessed: Long = statsFor(actorRef).msgsProcessed.get(),
-    restarts: Long = statsFor(actorRef).restarts.get())(implicit app: AkkaApplication) {
+    restarts: Long = statsFor(actorRef).restarts.get())(implicit app: ActorSystem) {
     val stats = statsFor(actorRef, Option(dispatcher).getOrElse(actorRef.asInstanceOf[LocalActorRef].underlying.dispatcher))
     val deadline = System.currentTimeMillis + 1000
     try {
@@ -215,9 +204,9 @@ object ActorModelSpec {
       await(deadline)(stats.restarts.get() == restarts)
     } catch {
       case e ⇒
-        app.eventHandler.error(e, dispatcher, "actual: " + stats + ", required: InterceptorStats(susp=" + suspensions +
+        app.eventStream.publish(Error(e, dispatcher, "actual: " + stats + ", required: InterceptorStats(susp=" + suspensions +
           ",res=" + resumes + ",reg=" + registers + ",unreg=" + unregisters +
-          ",recv=" + msgsReceived + ",proc=" + msgsProcessed + ",restart=" + restarts)
+          ",recv=" + msgsReceived + ",proc=" + msgsProcessed + ",restart=" + restarts))
         throw e
     }
   }
@@ -250,11 +239,11 @@ abstract class ActorModelSpec extends AkkaSpec {
 
     "must dynamically handle its own life cycle" in {
       implicit val dispatcher = newInterceptedDispatcher
-      assertDispatcher(dispatcher)(starts = 0, stops = 0)
+      assertDispatcher(dispatcher)(stops = 0)
       val a = newTestActor(dispatcher)
-      assertDispatcher(dispatcher)(starts = 1, stops = 0)
+      assertDispatcher(dispatcher)(stops = 0)
       a.stop()
-      assertDispatcher(dispatcher)(starts = 1, stops = 1)
+      assertDispatcher(dispatcher)(stops = 1)
       assertRef(a, dispatcher)(
         suspensions = 0,
         resumes = 0,
@@ -267,15 +256,15 @@ abstract class ActorModelSpec extends AkkaSpec {
       val futures = for (i ← 1 to 10) yield Future {
         i
       }
-      assertDispatcher(dispatcher)(starts = 2, stops = 2)
+      assertDispatcher(dispatcher)(stops = 2)
 
       val a2 = newTestActor(dispatcher)
       val futures2 = for (i ← 1 to 10) yield Future { i }
 
-      assertDispatcher(dispatcher)(starts = 3, stops = 2)
+      assertDispatcher(dispatcher)(stops = 2)
 
       a2.stop
-      assertDispatcher(dispatcher)(starts = 3, stops = 3)
+      assertDispatcher(dispatcher)(stops = 3)
     }
 
     "process messages one at a time" in {
@@ -284,13 +273,13 @@ abstract class ActorModelSpec extends AkkaSpec {
       val a = newTestActor(dispatcher)
 
       a ! CountDown(start)
-      assertCountDown(start, Testing.testTime(3000), "Should process first message within 3 seconds")
+      assertCountDown(start, 3.seconds.dilated.toMillis, "Should process first message within 3 seconds")
       assertRefDefaultZero(a)(registers = 1, msgsReceived = 1, msgsProcessed = 1)
 
       a ! Wait(1000)
       a ! CountDown(oneAtATime)
       // in case of serialization violation, restart would happen instead of count down
-      assertCountDown(oneAtATime, Testing.testTime(1500), "Processed message when allowed")
+      assertCountDown(oneAtATime, (1.5 seconds).dilated.toMillis, "Processed message when allowed")
       assertRefDefaultZero(a)(registers = 1, msgsReceived = 3, msgsProcessed = 3)
 
       a.stop()
@@ -309,7 +298,7 @@ abstract class ActorModelSpec extends AkkaSpec {
           }
         }
       }
-      assertCountDown(counter, Testing.testTime(3000), "Should process 200 messages")
+      assertCountDown(counter, 3.seconds.dilated.toMillis, "Should process 200 messages")
       assertRefDefaultZero(a)(registers = 1, msgsReceived = 200, msgsProcessed = 200)
 
       a.stop()
@@ -321,7 +310,7 @@ abstract class ActorModelSpec extends AkkaSpec {
           try {
             f
           } catch {
-            case e ⇒ app.eventHandler.error(e, this, "error in spawned thread")
+            case e ⇒ app.eventStream.publish(Error(e, this, "error in spawned thread"))
           }
         }
       }
@@ -338,7 +327,7 @@ abstract class ActorModelSpec extends AkkaSpec {
       assertRefDefaultZero(a)(registers = 1, msgsReceived = 1, suspensions = 1)
 
       a.resume
-      assertCountDown(done, Testing.testTime(3000), "Should resume processing of messages when resumed")
+      assertCountDown(done, 3.seconds.dilated.toMillis, "Should resume processing of messages when resumed")
       assertRefDefaultZero(a)(registers = 1, msgsReceived = 1, msgsProcessed = 1,
         suspensions = 1, resumes = 1)
 
@@ -353,27 +342,25 @@ abstract class ActorModelSpec extends AkkaSpec {
 
       def flood(num: Int) {
         val cachedMessage = CountDownNStop(new CountDownLatch(num))
+        val stopLatch = new CountDownLatch(num)
+        val waitTime = (30 seconds).dilated.toMillis
         val boss = actorOf(Props(context ⇒ {
-          case "run" ⇒
-            for (_ ← 1 to num) context.actorOf(props) ! cachedMessage
+          case "run"             ⇒ for (_ ← 1 to num) (context.self startsWatching context.actorOf(props)) ! cachedMessage
+          case Terminated(child) ⇒ stopLatch.countDown()
         }).withDispatcher(wavesSupervisorDispatcher(dispatcher)))
         boss ! "run"
-        try {
-          assertCountDown(cachedMessage.latch, Testing.testTime(10000), "Should process " + num + " countdowns")
-        } catch {
-          case e ⇒
-            System.err.println("Error: " + e.getMessage + " missing count downs == " + cachedMessage.latch.getCount() + " out of " + num)
-        }
+        assertCountDown(cachedMessage.latch, waitTime, "Counting down from " + num)
+        assertCountDown(stopLatch, waitTime, "Expected all children to stop")
         boss.stop()
       }
       for (run ← 1 to 3) {
-        flood(40000)
-        assertDispatcher(dispatcher)(starts = run, stops = run)
+        flood(50000)
+        assertDispatcher(dispatcher)(stops = run)
       }
     }
 
     "continue to process messages when a thread gets interrupted" in {
-      filterEvents(EventFilter[InterruptedException], EventFilter[akka.event.EventHandler.EventHandlerException]) {
+      filterEvents(EventFilter[InterruptedException](), EventFilter[akka.event.Logging.EventHandlerException]()) {
         implicit val dispatcher = newInterceptedDispatcher
         implicit val timeout = Timeout(5 seconds)
         val a = newTestActor(dispatcher)
@@ -394,7 +381,7 @@ abstract class ActorModelSpec extends AkkaSpec {
     }
 
     "continue to process messages when exception is thrown" in {
-      filterEvents(EventFilter[IndexOutOfBoundsException], EventFilter[RemoteException]) {
+      filterEvents(EventFilter[IndexOutOfBoundsException](), EventFilter[RemoteException]()) {
         implicit val dispatcher = newInterceptedDispatcher
         val a = newTestActor(dispatcher)
         val f1 = a ? Reply("foo")
@@ -434,10 +421,10 @@ class DispatcherModelSpec extends ActorModelSpec {
       val a, b = newTestActor(dispatcher)
 
       a ! Meet(aStart, aStop)
-      assertCountDown(aStart, Testing.testTime(3000), "Should process first message within 3 seconds")
+      assertCountDown(aStart, 3.seconds.dilated.toMillis, "Should process first message within 3 seconds")
 
       b ! CountDown(bParallel)
-      assertCountDown(bParallel, Testing.testTime(3000), "Should process other actors in parallel")
+      assertCountDown(bParallel, 3.seconds.dilated.toMillis, "Should process other actors in parallel")
 
       aStop.countDown()
 
@@ -473,10 +460,10 @@ class BalancingDispatcherModelSpec extends ActorModelSpec {
       val a, b = newTestActor(dispatcher)
 
       a ! Meet(aStart, aStop)
-      assertCountDown(aStart, Testing.testTime(3000), "Should process first message within 3 seconds")
+      assertCountDown(aStart, 3.seconds.dilated.toMillis, "Should process first message within 3 seconds")
 
       b ! CountDown(bParallel)
-      assertCountDown(bParallel, Testing.testTime(3000), "Should process other actors in parallel")
+      assertCountDown(bParallel, 3.seconds.dilated.toMillis, "Should process other actors in parallel")
 
       aStop.countDown()
 

@@ -15,12 +15,8 @@ import akka.testkit.AkkaSpec
 @org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class RestartStrategySpec extends AkkaSpec {
 
-  override def atStartup() {
-    app.eventHandler.notify(Mute(EventFilter[Exception]("Crashing...")))
-  }
-
-  override def atTermination() {
-    app.eventHandler.notify(UnMuteAll)
+  override def atStartup {
+    app.eventStream.publish(Mute(EventFilter[Exception]("Crashing...")))
   }
 
   object Ping
@@ -232,7 +228,7 @@ class RestartStrategySpec extends AkkaSpec {
       })
       val slave = (boss ? slaveProps).as[ActorRef].get
 
-      boss startsMonitoring slave
+      boss startsWatching slave
 
       slave ! Ping
       slave ! Crash

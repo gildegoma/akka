@@ -25,8 +25,8 @@ object AkkaBuild extends Build {
       Unidoc.unidocExclude := Seq(samples.id, tutorials.id),
       rstdocDirectory <<= baseDirectory / "akka-docs"
     ),
-    aggregate = Seq(actor, testkit, actorTests, stm, http, remote, slf4j, akkaSbtPlugin, samples, tutorials, docs)
-    //aggregate = Seq(actor, testkit, actorTests, stm, http, slf4j, cluster, mailboxes, camel, camelTyped, samples, tutorials)
+    aggregate = Seq(actor, testkit, actorTests, stm, remote, slf4j, amqp, mailboxes, akkaSbtPlugin, samples, tutorials, docs)
+    //aggregate = Seq(cluster, mailboxes, camel, camelTyped)
   )
 
   lazy val actor = Project(
@@ -105,15 +105,6 @@ object AkkaBuild extends Build {
   //   )
   // ) configs (MultiJvm)
 
-  lazy val http = Project(
-    id = "akka-http",
-    base = file("akka-http"),
-    dependencies = Seq(actor, testkit % "test->test"),
-    settings = defaultSettings ++ Seq(
-      libraryDependencies ++= Dependencies.http
-    )
-  )
-
   lazy val slf4j = Project(
     id = "akka-slf4j",
     base = file("akka-slf4j"),
@@ -123,75 +114,87 @@ object AkkaBuild extends Build {
     )
   )
 
-  // lazy val mailboxes = Project(
-  //   id = "akka-durable-mailboxes",
-  //   base = file("akka-durable-mailboxes"),
-  //   settings = parentSettings,
-  //   aggregate = Seq(mailboxesCommon, beanstalkMailbox, fileMailbox, redisMailbox, zookeeperMailbox)
-  //   // aggregate = Seq(mailboxesCommon, beanstalkMailbox, fileMailbox, redisMailbox, zookeeperMailbox, mongoMailbox)
-  // )
+  lazy val amqp = Project(
+    id = "akka-amqp",
+    base = file("akka-amqp"),
+    dependencies = Seq(actor, testkit % "test->test"),
+    settings = defaultSettings ++ Seq(
+      libraryDependencies ++= Dependencies.amqp
+    )
+  )
 
-  // lazy val mailboxesCommon = Project(
-  //   id = "akka-mailboxes-common",
-  //   base = file("akka-durable-mailboxes/akka-mailboxes-common"),
-  //   dependencies = Seq(cluster),
-  //   settings = defaultSettings ++ Seq(
-  //     libraryDependencies ++= Dependencies.mailboxes
-  //   )
-  // )
+  lazy val mailboxes = Project(
+    id = "akka-durable-mailboxes",
+    base = file("akka-durable-mailboxes"),
+    settings = parentSettings,
+    aggregate = Seq(mailboxesCommon, fileMailbox, mongoMailbox, redisMailbox, beanstalkMailbox, zookeeperMailbox)
+  )
 
-  // val testBeanstalkMailbox = SettingKey[Boolean]("test-beanstalk-mailbox")
+  lazy val mailboxesCommon = Project(
+    id = "akka-mailboxes-common",
+    base = file("akka-durable-mailboxes/akka-mailboxes-common"),
+    dependencies = Seq(remote, testkit % "compile;test->test"),
+    settings = defaultSettings ++ Seq(
+      libraryDependencies ++= Dependencies.mailboxes
+    )
+  )
 
-  // lazy val beanstalkMailbox = Project(
-  //   id = "akka-beanstalk-mailbox",
-  //   base = file("akka-durable-mailboxes/akka-beanstalk-mailbox"),
-  //   dependencies = Seq(mailboxesCommon % "compile;test->test"),
-  //   settings = defaultSettings ++ Seq(
-  //     libraryDependencies ++= Dependencies.beanstalkMailbox,
-  //     testBeanstalkMailbox := false,
-  //     testOptions in Test <+= testBeanstalkMailbox map { test => Tests.Filter(s => test) }
-  //   )
-  // )
+  val testBeanstalkMailbox = SettingKey[Boolean]("test-beanstalk-mailbox")
 
-  // lazy val fileMailbox = Project(
-  //   id = "akka-file-mailbox",
-  //   base = file("akka-durable-mailboxes/akka-file-mailbox"),
-  //   dependencies = Seq(mailboxesCommon % "compile;test->test", testkit % "test"),
-  //   settings = defaultSettings
-  // )
+  lazy val beanstalkMailbox = Project(
+    id = "akka-beanstalk-mailbox",
+    base = file("akka-durable-mailboxes/akka-beanstalk-mailbox"),
+    dependencies = Seq(mailboxesCommon % "compile;test->test"),
+    settings = defaultSettings ++ Seq(
+      libraryDependencies ++= Dependencies.beanstalkMailbox,
+      testBeanstalkMailbox := false,
+      testOptions in Test <+= testBeanstalkMailbox map { test => Tests.Filter(s => test) }
+    )
+  )
 
-  // val testRedisMailbox = SettingKey[Boolean]("test-redis-mailbox")
+  lazy val fileMailbox = Project(
+    id = "akka-file-mailbox",
+    base = file("akka-durable-mailboxes/akka-file-mailbox"),
+    dependencies = Seq(mailboxesCommon % "compile;test->test", testkit % "test"),
+    settings = defaultSettings ++ Seq(
+      libraryDependencies ++= Dependencies.fileMailbox
+    )
+  )
 
-  // lazy val redisMailbox = Project(
-  //   id = "akka-redis-mailbox",
-  //   base = file("akka-durable-mailboxes/akka-redis-mailbox"),
-  //   dependencies = Seq(mailboxesCommon % "compile;test->test"),
-  //   settings = defaultSettings ++ Seq(
-  //     libraryDependencies ++= Dependencies.redisMailbox,
-  //     testRedisMailbox := false,
-  //     testOptions in Test <+= testRedisMailbox map { test => Tests.Filter(s => test) }
-  //   )
-  // )
+  val testRedisMailbox = SettingKey[Boolean]("test-redis-mailbox")
 
-  // lazy val zookeeperMailbox = Project(
-  //   id = "akka-zookeeper-mailbox",
-  //   base = file("akka-durable-mailboxes/akka-zookeeper-mailbox"),
-  //   dependencies = Seq(mailboxesCommon % "compile;test->test", testkit % "test"),
-  //   settings = defaultSettings
-  // )
+  lazy val redisMailbox = Project(
+    id = "akka-redis-mailbox",
+    base = file("akka-durable-mailboxes/akka-redis-mailbox"),
+    dependencies = Seq(mailboxesCommon % "compile;test->test"),
+    settings = defaultSettings ++ Seq(
+      libraryDependencies ++= Dependencies.redisMailbox,
+      testRedisMailbox := false,
+      testOptions in Test <+= testRedisMailbox map { test => Tests.Filter(s => test) }
+    )
+  )
+  
+  lazy val zookeeperMailbox = Project(
+    id = "akka-zookeeper-mailbox",
+    base = file("akka-durable-mailboxes/akka-zookeeper-mailbox"),
+    dependencies = Seq(mailboxesCommon % "compile;test->test", testkit % "test"),
+    settings = defaultSettings  ++ Seq(
+      libraryDependencies ++= Dependencies.zookeeperMailbox
+    )
+  )
 
-  // val testMongoMailbox = SettingKey[Boolean]("test-mongo-mailbox")
+  val testMongoMailbox = SettingKey[Boolean]("test-mongo-mailbox")
 
-  // lazy val mongoMailbox = Project(
-  //   id = "akka-mongo-mailbox",
-  //   base = file("akka-durable-mailboxes/akka-mongo-mailbox"),
-  //   dependencies = Seq(mailboxesCommon % "compile;test->test"),
-  //   settings = defaultSettings ++ Seq(
-  //     libraryDependencies ++= Dependencies.mongoMailbox,
-  //     testMongoMailbox := false,
-  //     testOptions in Test <+= testMongoMailbox map { test => Tests.Filter(s => test) }
-  //   )
-  // )
+  lazy val mongoMailbox = Project(
+    id = "akka-mongo-mailbox",
+    base = file("akka-durable-mailboxes/akka-mongo-mailbox"),
+    dependencies = Seq(mailboxesCommon % "compile;test->test"),
+    settings = defaultSettings ++ Seq(
+      libraryDependencies ++= Dependencies.mongoMailbox,
+      testMongoMailbox := false,
+      testOptions in Test <+= testMongoMailbox map { test => Tests.Filter(s => test) }
+    )
+  )
 
   // lazy val camel = Project(
   //   id = "akka-camel",
@@ -222,7 +225,7 @@ object AkkaBuild extends Build {
   // lazy val kernel = Project(
   //   id = "akka-kernel",
   //   base = file("akka-kernel"),
-  //   dependencies = Seq(cluster, http, slf4j, spring),
+  //   dependencies = Seq(cluster, slf4j, spring),
   //   settings = defaultSettings ++ Seq(
   //     libraryDependencies ++= Dependencies.kernel
   //   )
@@ -312,7 +315,7 @@ object AkkaBuild extends Build {
   lazy val docs = Project(
     id = "akka-docs",
     base = file("akka-docs"),
-    dependencies = Seq(actor, testkit % "test->test", stm, http, remote, slf4j),
+    dependencies = Seq(actor, testkit % "test->test", stm, remote, slf4j),
     settings = defaultSettings ++ Seq(
       unmanagedSourceDirectories in Test <<= baseDirectory { _ ** "code" get },
       libraryDependencies ++= Dependencies.docs,
@@ -416,20 +419,21 @@ object Dependencies {
     protobuf, sjson, zkClient, zookeeper, zookeeperLock, Test.junit, Test.scalatest
   )
 
-  val http = Seq(
-    jsr250, Provided.javaxServlet, Provided.jetty, Provided.jerseyServer, jsr311, commonsCodec,
-    Test.junit, Test.scalatest, Test.mockito
-  )
-
   val slf4j = Seq(slf4jApi)
 
-  val mailboxes = Seq(Test.scalatest)
+  val amqp = Seq(rabbit, commonsIo, protobuf)
 
-  val beanstalkMailbox = Seq(beanstalk)
+  val mailboxes = Seq(Test.scalatest, Test.junit)
+  
+  val fileMailbox = Seq(Test.scalatest, Test.junit)
 
-  val redisMailbox = Seq(redis)
+  val beanstalkMailbox = Seq(beanstalk, Test.junit)
 
-  val mongoMailbox = Seq(mongoAsync, twttrUtilCore)
+  val redisMailbox = Seq(redis, Test.junit)
+
+  val mongoMailbox = Seq(mongoAsync, twttrUtilCore, Test.junit)
+  
+  val zookeeperMailbox = Seq(zookeeper, Test.junit)
 
 //  val camel = Seq(camelCore, Test.junit, Test.scalatest, Test.logback)
 
@@ -437,8 +441,7 @@ object Dependencies {
 //  val spring = Seq(springBeans, springContext, camelSpring, Test.junit, Test.scalatest)
 
   val kernel = Seq(
-    jettyUtil, jettyXml, jettyServlet, jerseyCore, jerseyJson, jerseyScala,
-    jacksonCore, staxApi, Provided.jerseyServer
+    jettyUtil, jettyXml, jettyServlet, jacksonCore, staxApi
   )
 
   // TODO: resolve Jetty version conflict
@@ -466,6 +469,7 @@ object Dependency {
     val Slf4j        = "1.6.0"
     val Spring       = "3.0.5.RELEASE"
     val Zookeeper    = "3.4.0"
+    val Rabbit       = "2.3.1"
   }
 
   // Compile
@@ -480,20 +484,16 @@ object Dependency {
   val h2Lzf         = "voldemort.store.compress"    % "h2-lzf"                 % "1.0"        // ApacheV2
   val jacksonCore   = "org.codehaus.jackson"        % "jackson-core-asl"       % V.Jackson    // ApacheV2
   val jacksonMapper = "org.codehaus.jackson"        % "jackson-mapper-asl"     % V.Jackson    // ApacheV2
-  val jerseyCore    = "com.sun.jersey"              % "jersey-core"            % V.Jersey     // CDDL v1
-  val jerseyJson    = "com.sun.jersey"              % "jersey-json"            % V.Jersey     // CDDL v1
-  val jerseyScala   = "com.sun.jersey.contribs"     % "jersey-scala"           % V.Jersey     // CDDL v1
   val jettyUtil     = "org.eclipse.jetty"           % "jetty-util"             % V.Jetty      // Eclipse license
   val jettyXml      = "org.eclipse.jetty"           % "jetty-xml"              % V.Jetty      // Eclipse license
   val jettyServlet  = "org.eclipse.jetty"           % "jetty-servlet"          % V.Jetty      // Eclipse license
-  val jsr250        = "javax.annotation"            % "jsr250-api"             % "1.0"        // CDDL v1
-  val jsr311        = "javax.ws.rs"                 % "jsr311-api"             % "1.1"        // CDDL v1
   val log4j         = "log4j"                       % "log4j"                  % "1.2.15"     // ApacheV2
-  val mongoAsync    = "com.mongodb.async"           % "mongo-driver_2.9.0-1"   % "0.2.7"      // ApacheV2
+  val mongoAsync    = "com.mongodb.async"           % "mongo-driver_2.9.0-1"   % "0.2.9-1"    // ApacheV2
   val multiverse    = "org.multiverse"              % "multiverse-alpha"       % V.Multiverse // ApacheV2
   val netty         = "org.jboss.netty"             % "netty"                  % V.Netty      // ApacheV2
   val osgi          = "org.osgi"                    % "org.osgi.core"          % "4.2.0"      // ApacheV2
   val protobuf      = "com.google.protobuf"         % "protobuf-java"          % V.Protobuf   // New BSD
+  val rabbit        = "com.rabbitmq"                % "amqp-client"            % V.Rabbit     // Mozilla Public License
   val redis         = "net.debasishg"               %% "redisclient"           % "2.4.0"      // ApacheV2
   val sjson         = "net.debasishg"               %% "sjson"                 % "0.15"       // ApacheV2
   val slf4jApi      = "org.slf4j"                   % "slf4j-api"              % V.Slf4j      // MIT
@@ -509,7 +509,6 @@ object Dependency {
 
   object Provided {
     val javaxServlet = "org.apache.geronimo.specs" % "geronimo-servlet_3.0_spec" % "1.0" % "provided" // CDDL v1
-    val jerseyServer = "com.sun.jersey"    % "jersey-server" % V.Jersey       % "provided"            // CDDL v1
     val jetty        = "org.eclipse.jetty" % "jetty-server"  % V.Jetty        % "provided"            // Eclipse license
   }
 

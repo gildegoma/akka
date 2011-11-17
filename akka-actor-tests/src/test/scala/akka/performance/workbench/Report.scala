@@ -5,15 +5,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import scala.collection.JavaConversions.asScalaBuffer
 import scala.collection.JavaConversions.enumerationAsScalaIterator
-import akka.AkkaApplication
+import akka.actor.ActorSystem
+import akka.event.Logging
 import scala.collection.immutable.TreeMap
 
 class Report(
-  app: AkkaApplication,
+  app: ActorSystem,
   resultRepository: BenchResultRepository,
   compareResultWith: Option[String] = None) {
 
-  private def log = System.getProperty("benchmark.logResult", "true").toBoolean
+  private def doLog = System.getProperty("benchmark.logResult", "true").toBoolean
+  val log = Logging(app, this)
 
   val dateTimeFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm")
   val legendTimeFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm")
@@ -33,17 +35,20 @@ class Report(
     sb.append(resultTable)
     sb.append("\n</pre>\n")
 
-    sb.append(img(percentilesAndMeanChart(current)))
     sb.append(img(latencyAndThroughputChart(current)))
 
     compareWithHistoricalTpsChart(statistics).foreach(url ⇒ sb.append(img(url)))
 
-    for (stats ← statistics) {
-      compareWithHistoricalPercentiliesAndMeanChart(stats).foreach(url ⇒ sb.append(img(url)))
-    }
+    if (current.max > 0L) {
+      sb.append(img(percentilesAndMeanChart(current)))
 
-    for (stats ← statistics) {
-      comparePercentilesAndMeanChart(stats).foreach(url ⇒ sb.append(img(url)))
+      for (stats ← statistics) {
+        compareWithHistoricalPercentiliesAndMeanChart(stats).foreach(url ⇒ sb.append(img(url)))
+      }
+
+      for (stats ← statistics) {
+        comparePercentilesAndMeanChart(stats).foreach(url ⇒ sb.append(img(url)))
+      }
     }
 
     sb.append("<hr/>\n")
@@ -55,8 +60,8 @@ class Report(
     val reportName = current.name + "--" + timestamp + ".html"
     resultRepository.saveHtmlReport(sb.toString, reportName)
 
-    if (log) {
-      app.eventHandler.info(this, resultTable + "Charts in html report: " + resultRepository.htmlReportUrl(reportName))
+    if (doLog) {
+      log.info(resultTable + "Charts in html report: " + resultRepository.htmlReportUrl(reportName))
     }
 
   }
