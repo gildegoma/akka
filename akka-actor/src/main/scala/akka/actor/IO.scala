@@ -4,7 +4,6 @@
 package akka.actor
 
 import akka.util.ByteString
-import akka.event.EventHandler
 import java.net.InetSocketAddress
 import java.io.IOException
 import java.util.concurrent.atomic.{ AtomicReference, AtomicBoolean }
@@ -24,7 +23,6 @@ import scala.collection.immutable.Queue
 import scala.annotation.tailrec
 import scala.collection.generic.CanBuildFrom
 import com.eaio.uuid.UUID
-import akka.AkkaApplication
 
 object IO {
 
@@ -200,8 +198,8 @@ object IO {
     def sync[A](initial: Iteratee[A]): IterateeRefSync[A] = new IterateeRefSync(initial)
     def sync(): IterateeRefSync[Unit] = new IterateeRefSync(Iteratee.unit)
 
-    def async[A](initial: Iteratee[A])(implicit app: AkkaApplication): IterateeRefAsync[A] = new IterateeRefAsync(initial)
-    def async()(implicit app: AkkaApplication): IterateeRefAsync[Unit] = new IterateeRefAsync(Iteratee.unit)
+    def async[A](initial: Iteratee[A])(implicit app: ActorSystem): IterateeRefAsync[A] = new IterateeRefAsync(initial)
+    def async()(implicit app: ActorSystem): IterateeRefAsync[Unit] = new IterateeRefAsync(Iteratee.unit)
 
     class Map[K, V] private (refFactory: ⇒ IterateeRef[V], underlying: mutable.Map[K, IterateeRef[V]] = mutable.Map.empty[K, IterateeRef[V]]) extends mutable.Map[K, IterateeRef[V]] {
       def get(key: K) = Some(underlying.getOrElseUpdate(key, refFactory))
@@ -213,7 +211,7 @@ object IO {
     object Map {
       def apply[K, V](refFactory: ⇒ IterateeRef[V]): IterateeRef.Map[K, V] = new Map(refFactory)
       def sync[K](): IterateeRef.Map[K, Unit] = new Map(IterateeRef.sync())
-      def async[K]()(implicit app: AkkaApplication): IterateeRef.Map[K, Unit] = new Map(IterateeRef.async())
+      def async[K]()(implicit app: ActorSystem): IterateeRef.Map[K, Unit] = new Map(IterateeRef.async())
     }
   }
 
@@ -242,7 +240,7 @@ object IO {
     def value: (Iteratee[A], Input) = _value
   }
 
-  final class IterateeRefAsync[A](initial: Iteratee[A])(implicit app: AkkaApplication) extends IterateeRef[A] {
+  final class IterateeRefAsync[A](initial: Iteratee[A])(implicit app: ActorSystem) extends IterateeRef[A] {
     import akka.dispatch.Future
     private var _value: Future[(Iteratee[A], Input)] = Future((initial, Chunk.empty))
     def flatMap(f: A ⇒ Iteratee[A]): Unit = _value = _value map {
@@ -419,7 +417,7 @@ object IO {
 
 // FIXME: This is very temporary
 object IOManager {
-  val ioApp = AkkaApplication()
+  val ioApp = ActorSystem()
   val global = ioApp.actorOf(new IOManager())
 }
 
@@ -467,7 +465,7 @@ private[akka] object IOWorker {
   case object Shutdown extends Request
 }
 
-private[akka] class IOWorker(app: AkkaApplication, ioManager: ActorRef, val bufferSize: Int) {
+private[akka] class IOWorker(app: ActorSystem, ioManager: ActorRef, val bufferSize: Int) {
   import SelectionKey.{ OP_READ, OP_WRITE, OP_ACCEPT, OP_CONNECT }
   import IOWorker._
 
