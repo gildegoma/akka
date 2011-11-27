@@ -42,6 +42,11 @@ object RouterType {
   object ScatterGather extends RouterType
 
   /**
+   * A RouterType that broadcasts the messages to all connections.
+   */
+  object Broadcast extends RouterType
+
+  /**
    * A RouterType that selects the connection based on the least amount of cpu usage
    */
   object LeastCPU extends RouterType
@@ -67,15 +72,14 @@ object RouterType {
  * Routed ActorRef configuration object, this is thread safe and fully sharable.
  */
 case class RoutedProps private[akka] (
-  routerFactory: () ⇒ Router = RoutedProps.defaultRouterFactory,
-  connectionManager: ConnectionManager = new LocalConnectionManager(List()),
+  routerFactory: () ⇒ Router,
+  connectionManager: ConnectionManager,
   timeout: Timeout = RoutedProps.defaultTimeout,
   localOnly: Boolean = RoutedProps.defaultLocalOnly) {
 }
 
 object RoutedProps {
   final val defaultTimeout = Timeout(Duration.MinusInf)
-  final val defaultRouterFactory = () ⇒ new RoundRobinRouter
   final val defaultLocalOnly = false
 }
 
@@ -155,7 +159,7 @@ object Routing {
 /**
  * An Abstract convenience implementation for building an ActorReference that uses a Router.
  */
-abstract private[akka] class AbstractRoutedActorRef(val app: ActorSystem, val props: RoutedProps) extends MinimalActorRef {
+abstract private[akka] class AbstractRoutedActorRef(val system: ActorSystem, val props: RoutedProps) extends MinimalActorRef {
   val router = props.routerFactory()
 
   override def !(message: Any)(implicit sender: ActorRef = null): Unit = router.route(message)(sender)
@@ -167,7 +171,7 @@ abstract private[akka] class AbstractRoutedActorRef(val app: ActorSystem, val pr
  * A RoutedActorRef is an ActorRef that has a set of connected ActorRef and it uses a Router to send a message to
  * on (or more) of these actors.
  */
-private[akka] class RoutedActorRef(app: ActorSystem, val routedProps: RoutedProps, val supervisor: ActorRef, override val name: String) extends AbstractRoutedActorRef(app, routedProps) {
+private[akka] class RoutedActorRef(system: ActorSystem, val routedProps: RoutedProps, val supervisor: ActorRef, override val name: String) extends AbstractRoutedActorRef(system, routedProps) {
 
   val path = supervisor.path / name
 
@@ -177,7 +181,7 @@ private[akka] class RoutedActorRef(app: ActorSystem, val routedProps: RoutedProp
   @volatile
   private var running: Boolean = true
 
-  override def isShutdown: Boolean = !running
+  override def isTerminated: Boolean = !running
 
   override def stop() {
     synchronized {
@@ -258,11 +262,40 @@ trait BasicRouter extends Router {
 }
 
 /**
+ * A Router that uses broadcasts a message to all its connections.
+ */
+class BroadcastRouter(implicit val dispatcher: MessageDispatcher, timeout: Timeout) extends BasicRouter with Serializable {
+  override def route(message: Any)(implicit sender: ActorRef) = {
+    connectionManager.connections.iterable foreach { connection ⇒
+      try {
+        connection.!(message)(sender) // we use original sender, so this is essentially a 'forward'
+      } catch {
+        case e: Exception ⇒
+          connectionManager.remove(connection)
+          throw e
+      }
+    }
+  }
+
+  //protected def gather[S, G >: S](results: Iterable[Future[S]]): Future[G] =
+  override def route[T](message: Any, timeout: Timeout): Future[T] = {
+    import Future._
+    implicit val t = timeout
+    val futures = connectionManager.connections.iterable map { connection ⇒
+      connection.?(message, timeout).asInstanceOf[Future[T]]
+    }
+    Future.firstCompletedOf(futures)
+  }
+
+  protected def next: Option[ActorRef] = None
+}
+
+/**
  * A DirectRouter a Router that only has a single connected actorRef and forwards all request to that actorRef.
  *
  * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
-class DirectRouter extends BasicRouter {
+class DirectRouter(implicit val dispatcher: MessageDispatcher, timeout: Timeout) extends BasicRouter {
 
   private val state = new AtomicReference[DirectRouterState]
 
@@ -304,7 +337,7 @@ class DirectRouter extends BasicRouter {
  *
  * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
-class RandomRouter extends BasicRouter {
+class RandomRouter(implicit val dispatcher: MessageDispatcher, timeout: Timeout) extends BasicRouter {
   import java.security.SecureRandom
 
   private val state = new AtomicReference[RandomRouterState]
@@ -346,7 +379,7 @@ class RandomRouter extends BasicRouter {
  *
  * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
-class RoundRobinRouter extends BasicRouter {
+class RoundRobinRouter(implicit val dispatcher: MessageDispatcher, timeout: Timeout) extends BasicRouter {
 
   private val state = new AtomicReference[RoundRobinState]
 
@@ -411,7 +444,7 @@ trait ScatterGatherRouter extends BasicRouter with Serializable {
   private def scatterGather[S, G >: S](message: Any, timeout: Timeout): Future[G] = {
     val responses = connectionManager.connections.iterable.flatMap { actor ⇒
       try {
-        if (actor.isShutdown) throw ActorInitializationException(actor, "For compatability - check death first", new Exception) // for stack trace
+        if (actor.isTerminated) throw ActorInitializationException(actor, "For compatability - check death first", new Exception) // for stack trace
         Some(actor.?(message, timeout).asInstanceOf[Future[S]])
       } catch {
         case e: Exception ⇒
@@ -437,7 +470,7 @@ trait ScatterGatherRouter extends BasicRouter with Serializable {
  * (wrapped into {@link Routing.Broadcast} and sent with "?" method). For the messages sent in a fire-forget
  * mode, the router would behave as {@link RoundRobinRouter}
  */
-class ScatterGatherFirstCompletedRouter(implicit val dispatcher: MessageDispatcher, timeout: Timeout) extends RoundRobinRouter with ScatterGatherRouter {
+class ScatterGatherFirstCompletedRouter(implicit dispatcher: MessageDispatcher, timeout: Timeout) extends RoundRobinRouter with ScatterGatherRouter {
 
   protected def gather[S, G >: S](results: Iterable[Future[S]]): Future[G] = Future.firstCompletedOf(results)
 }

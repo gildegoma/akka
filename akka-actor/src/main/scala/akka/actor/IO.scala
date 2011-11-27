@@ -51,20 +51,18 @@ object IO {
     def write(bytes: ByteString): Unit = ioManager ! Write(this, bytes)
   }
 
-  case class SocketHandle(owner: ActorRef, ioManager: ActorRef = IOManager.global, uuid: UUID = new UUID()) extends ReadHandle with WriteHandle {
+  case class SocketHandle(owner: ActorRef, ioManager: ActorRef, uuid: UUID = new UUID()) extends ReadHandle with WriteHandle {
     override def asSocket = this
   }
 
-  case class ServerHandle(owner: ActorRef, ioManager: ActorRef = IOManager.global, uuid: UUID = new UUID()) extends Handle {
+  case class ServerHandle(owner: ActorRef, ioManager: ActorRef, uuid: UUID = new UUID()) extends Handle {
     override def asServer = this
 
-    def accept(socketOwner: ActorRef): SocketHandle = {
+    def accept()(implicit socketOwner: ActorRef): SocketHandle = {
       val socket = SocketHandle(socketOwner, ioManager)
       ioManager ! Accept(socket, this)
       socket
     }
-
-    def accept()(implicit socketOwner: ScalaActorRef): SocketHandle = accept(socketOwner)
   }
 
   sealed trait IOMessage
@@ -78,41 +76,37 @@ object IO {
   case class Read(handle: ReadHandle, bytes: ByteString) extends IOMessage
   case class Write(handle: WriteHandle, bytes: ByteString) extends IOMessage
 
-  def listen(ioManager: ActorRef, address: InetSocketAddress, owner: ActorRef): ServerHandle = {
+  def listen(address: InetSocketAddress)(implicit system: ActorSystem, owner: ActorRef): ServerHandle = {
+    val ioManager = IOManager.start()
     val server = ServerHandle(owner, ioManager)
     ioManager ! Listen(server, address)
     server
   }
 
-  def listen(ioManager: ActorRef, address: InetSocketAddress)(implicit sender: ScalaActorRef): ServerHandle =
-    listen(ioManager, address, sender)
+  def listen(host: String, port: Int)(implicit system: ActorSystem, owner: ActorRef): ServerHandle =
+    listen(new InetSocketAddress(host, port))(system, owner)
 
-  def listen(ioManager: ActorRef, host: String, port: Int, owner: ActorRef): ServerHandle =
-    listen(ioManager, new InetSocketAddress(host, port), owner)
+  def listen(address: InetSocketAddress, owner: ActorRef)(implicit system: ActorSystem): ServerHandle =
+    listen(address)(system, owner)
 
-  def listen(ioManager: ActorRef, host: String, port: Int)(implicit sender: ScalaActorRef): ServerHandle =
-    listen(ioManager, new InetSocketAddress(host, port), sender)
+  def listen(host: String, port: Int, owner: ActorRef)(implicit system: ActorSystem): ServerHandle =
+    listen(new InetSocketAddress(host, port))(system, owner)
 
-  def listen(ioManager: ActorRef, port: Int, owner: ActorRef): ServerHandle =
-    listen(ioManager, new InetSocketAddress(port), owner)
-
-  def listen(ioManager: ActorRef, port: Int)(implicit sender: ScalaActorRef): ServerHandle =
-    listen(ioManager, new InetSocketAddress(port), sender)
-
-  def connect(ioManager: ActorRef, address: InetSocketAddress, owner: ActorRef): SocketHandle = {
+  def connect(address: InetSocketAddress)(implicit system: ActorSystem, owner: ActorRef): SocketHandle = {
+    val ioManager = IOManager.start()
     val socket = SocketHandle(owner, ioManager)
     ioManager ! Connect(socket, address)
     socket
   }
 
-  def connect(ioManager: ActorRef, address: InetSocketAddress)(implicit sender: ScalaActorRef): SocketHandle =
-    connect(ioManager, address, sender)
+  def connect(host: String, port: Int)(implicit system: ActorSystem, owner: ActorRef): SocketHandle =
+    connect(new InetSocketAddress(host, port))(system, owner)
 
-  def connect(ioManager: ActorRef, host: String, port: Int, owner: ActorRef): SocketHandle =
-    connect(ioManager, new InetSocketAddress(host, port), owner)
+  def connect(address: InetSocketAddress, owner: ActorRef)(implicit system: ActorSystem): SocketHandle =
+    connect(address)(system, owner)
 
-  def connect(ioManager: ActorRef, host: String, port: Int)(implicit sender: ScalaActorRef): SocketHandle =
-    connect(ioManager, new InetSocketAddress(host, port), sender)
+  def connect(host: String, port: Int, owner: ActorRef)(implicit system: ActorSystem): SocketHandle =
+    connect(new InetSocketAddress(host, port))(system, owner)
 
   sealed trait Input {
     def ++(that: Input): Input
@@ -415,22 +409,19 @@ object IO {
 
 }
 
-// FIXME: This is very temporary
 object IOManager {
-  val ioApp = ActorSystem()
-  val global = ioApp.actorOf(new IOManager())
+  def start()(implicit system: ActorSystem): ActorRef = system.actorOf[IOManager]("io-manager")
+  def stop()(implicit system: ActorSystem): Unit = system.actorFor(system / "io-manager") foreach (_.stop)
 }
 
 // TODO: Support a pool of workers
-class IOManager(bufferSize: Int = 8192) extends Actor {
+class IOManager extends Actor {
   import SelectionKey.{ OP_READ, OP_WRITE, OP_ACCEPT, OP_CONNECT }
   import IOWorker._
 
-  var worker: IOWorker = _
+  val bufferSize = 8192 // TODO: make buffer size configurable
 
-  override def preStart {
-    worker = new IOWorker(app, self, bufferSize)
-  }
+  val worker: IOWorker = new IOWorker(system, self, bufferSize)
 
   def receive = {
     case IO.Listen(server, address) ⇒
@@ -465,7 +456,7 @@ private[akka] object IOWorker {
   case object Shutdown extends Request
 }
 
-private[akka] class IOWorker(app: ActorSystem, ioManager: ActorRef, val bufferSize: Int) {
+private[akka] class IOWorker(system: ActorSystem, ioManager: ActorRef, val bufferSize: Int) {
   import SelectionKey.{ OP_READ, OP_WRITE, OP_ACCEPT, OP_CONNECT }
   import IOWorker._
 
@@ -550,7 +541,7 @@ private[akka] class IOWorker(app: ActorSystem, ioManager: ActorRef, val bufferSi
     _running.set(false)
   }
 
-  def run() { if (_running.get) app.dispatcher dispatchTask select }
+  def run() { if (_running.get) system.dispatcher dispatchTask select }
 
   private def process(key: SelectionKey) {
     val handle = key.attachment.asInstanceOf[IO.Handle]
@@ -590,7 +581,7 @@ private[akka] class IOWorker(app: ActorSystem, ioManager: ActorRef, val bufferSi
       case Some(channel) ⇒
         channel.close
         channels -= handle
-        handle.owner ! IO.Closed(handle, cause)
+        if (!handle.owner.isTerminated) handle.owner ! IO.Closed(handle, cause)
       case None ⇒
     }
   }

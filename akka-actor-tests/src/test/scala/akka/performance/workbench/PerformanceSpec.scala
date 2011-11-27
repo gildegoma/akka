@@ -11,13 +11,14 @@ import akka.actor.ActorSystem
 
 trait PerformanceSpec extends AkkaSpec with BeforeAndAfterEach {
 
-  def app: ActorSystem
-
   def isBenchmark() = System.getProperty("benchmark") == "true"
 
   def minClients() = System.getProperty("benchmark.minClients", "1").toInt;
 
-  def maxClients() = System.getProperty("benchmark.maxClients", "40").toInt;
+  def maxClients() = {
+    val default = if (isBenchmark) "48" else "4"
+    System.getProperty("benchmark.maxClients", default).toInt;
+  }
 
   def repeatFactor() = {
     val defaultRepeatFactor = if (isBenchmark) "150" else "2"
@@ -29,7 +30,7 @@ trait PerformanceSpec extends AkkaSpec with BeforeAndAfterEach {
   }
 
   val resultRepository = BenchResultRepository()
-  lazy val report = new Report(app, resultRepository, compareResultWith)
+  lazy val report = new Report(system, resultRepository, compareResultWith)
 
   /**
    * To compare two tests with each other you can override this method, in

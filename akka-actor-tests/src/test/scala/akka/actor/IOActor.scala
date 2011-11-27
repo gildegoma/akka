@@ -14,9 +14,9 @@ import akka.testkit._
 
 object IOActorSpec {
 
-  class SimpleEchoServer(host: String, port: Int, ioManager: ActorRef, started: TestLatch) extends Actor {
+  class SimpleEchoServer(host: String, port: Int, started: TestLatch) extends Actor {
 
-    IO listen (ioManager, host, port)
+    IO listen (host, port)
 
     started.open
 
@@ -44,9 +44,9 @@ object IOActorSpec {
 
   }
 
-  class SimpleEchoClient(host: String, port: Int, ioManager: ActorRef) extends Actor {
+  class SimpleEchoClient(host: String, port: Int) extends Actor {
 
-    val socket = IO connect (ioManager, host, port)
+    val socket = IO connect (host, port)
 
     val state = IO.IterateeRef.sync()
 
@@ -88,13 +88,13 @@ object IOActorSpec {
   }
 
   // Basic Redis-style protocol
-  class KVStore(host: String, port: Int, ioManager: ActorRef, started: TestLatch) extends Actor {
+  class KVStore(host: String, port: Int, started: TestLatch) extends Actor {
 
     val state = IO.IterateeRef.Map.sync[IO.Handle]()
 
     var kvs: Map[String, String] = Map.empty
 
-    IO listen (ioManager, host, port)
+    IO listen (host, port)
 
     started.open
 
@@ -152,9 +152,9 @@ object IOActorSpec {
 
   }
 
-  class KVClient(host: String, port: Int, ioManager: ActorRef) extends Actor {
+  class KVClient(host: String, port: Int) extends Actor {
 
-    val socket = IO connect (ioManager, host, port)
+    val socket = IO connect (host, port)
 
     val state = IO.IterateeRef.sync()
 
@@ -217,10 +217,9 @@ class IOActorSpec extends AkkaSpec with BeforeAndAfterEach {
   "an IO Actor" must {
     "run echo server" in {
       val started = TestLatch(1)
-      val ioManager = actorOf(new IOManager(2)) // teeny tiny buffer
-      val server = actorOf(new SimpleEchoServer("localhost", 8064, ioManager, started))
+      val server = actorOf(new SimpleEchoServer("localhost", 8064, started))
       started.await
-      val client = actorOf(new SimpleEchoClient("localhost", 8064, ioManager))
+      val client = actorOf(new SimpleEchoClient("localhost", 8064))
       val f1 = client ? ByteString("Hello World!1")
       val f2 = client ? ByteString("Hello World!2")
       val f3 = client ? ByteString("Hello World!3")
@@ -229,23 +228,24 @@ class IOActorSpec extends AkkaSpec with BeforeAndAfterEach {
       f3.get must equal(ByteString("Hello World!3"))
       client.stop
       server.stop
-      ioManager.stop
+      IOManager.stop
     }
 
     "run echo server under high load" in {
       val started = TestLatch(1)
-      val ioManager = actorOf(new IOManager())
-      val server = actorOf(new SimpleEchoServer("localhost", 8065, ioManager, started))
+      val server = actorOf(new SimpleEchoServer("localhost", 8065, started))
       started.await
-      val client = actorOf(new SimpleEchoClient("localhost", 8065, ioManager))
+      val client = actorOf(new SimpleEchoClient("localhost", 8065))
       val list = List.range(0, 1000)
       val f = Future.traverse(list)(i ⇒ client ? ByteString(i.toString))
       assert(f.get.size === 1000)
       client.stop
       server.stop
-      ioManager.stop
+      IOManager.stop
     }
 
+    // Not currently configurable at runtime
+    /*
     "run echo server under high load with small buffer" in {
       val started = TestLatch(1)
       val ioManager = actorOf(new IOManager(2))
@@ -259,14 +259,14 @@ class IOActorSpec extends AkkaSpec with BeforeAndAfterEach {
       server.stop
       ioManager.stop
     }
+    */
 
     "run key-value store" in {
       val started = TestLatch(1)
-      val ioManager = actorOf(new IOManager(2)) // teeny tiny buffer
-      val server = actorOf(new KVStore("localhost", 8067, ioManager, started))
+      val server = actorOf(new KVStore("localhost", 8067, started))
       started.await
-      val client1 = actorOf(new KVClient("localhost", 8067, ioManager))
-      val client2 = actorOf(new KVClient("localhost", 8067, ioManager))
+      val client1 = actorOf(new KVClient("localhost", 8067))
+      val client2 = actorOf(new KVClient("localhost", 8067))
       val f1 = client1 ? KVSet("hello", "World")
       val f2 = client1 ? KVSet("test", "No one will read me")
       val f3 = client1 ? KVGet("hello")
@@ -284,7 +284,7 @@ class IOActorSpec extends AkkaSpec with BeforeAndAfterEach {
       client1.stop
       client2.stop
       server.stop
-      ioManager.stop
+      IOManager.stop
     }
   }
 
