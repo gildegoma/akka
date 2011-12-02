@@ -1,0 +1,6 @@
+script: sbt test
+branches:
+  only:
+    - add-travis-ci
+notifications:
+  email: false
