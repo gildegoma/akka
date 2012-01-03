@@ -1,4 +1,4 @@
-script: sbt test
+script: ./mysbt test
 branches:
   only:
     - add-travis-ci
