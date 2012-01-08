@@ -1,4 +1,5 @@
 #!/bin/sh
+netstat -tan | grep LISTEN
 free
 java -server -Xms256M -Xmx512M -Xss1M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar "$@"
 
