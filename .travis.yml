@@ -1,4 +1,4 @@
-script: ./mysbt test
+script: ./testsbt "project akka-remote" test
 branches:
   only:
     - add-travis-ci
