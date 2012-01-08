@@ -1,4 +1,4 @@
 #!/bin/sh
 free
-java -server -Xms256M -Xmx512M -Xss1M -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar "$@"
+java -server -Xms256M -Xmx512M -Xss1M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar "$@"
 
