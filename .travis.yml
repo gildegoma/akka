@@ -1,8 +1,5 @@
 language: scala
-# Test only failing akka-remote
-script: 
-  - sbt compile
-  - sbt 'project akka-remote' test
+script: sbt test
 branches:
   only:
     - akka-remote-on-travis-ci
