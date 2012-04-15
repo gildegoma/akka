@@ -1,0 +1,8 @@
+language: scala
+scala: 2.9.1-1
+script: sbt test
+branches:
+  only:
+    - testing-v2.0.1 
+notifications:
+  email: false
