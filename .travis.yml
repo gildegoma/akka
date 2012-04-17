@@ -2,7 +2,7 @@ language: scala
 scala: 'version defined in project/AkkaBuild.scala'
 script: 
   - sbt compile
-  - sbt ";project akka-actor;test;project akka-testkit;test;project akka-actor-tests;test;project akka-remote;test;project akka-comel;test;project akka-cluster;test;project akka-slf4j;test;project akka-agent;test;project akka-transactor;test;project akka-durable-mailboxes;test;project akka-zeromq;test;project akka-docs;test" 
+  - sbt ";project akka-actor;test;project akka-testkit;test;project akka-actor-tests;test;project akka-remote;test;project akka-camel;test;project akka-cluster;test;project akka-slf4j;test;project akka-agent;test;project akka-transactor;test;project akka-durable-mailboxes;test;project akka-zeromq;test;project akka-docs;test" 
 branches:
   only:
     - add-travis-ci
