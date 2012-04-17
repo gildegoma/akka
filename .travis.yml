@@ -1,21 +1,8 @@
 language: scala
-# override 'script' because:
-#  - akka-remote sub-project randomly fails to build on Travis worker-VM
-#  - akka 'master' branch now builds with scala version is now 2.9.1-1 (Travis default is 2.9.1)
+scala: 'version defined in project/AkkaBuild.scala'
 script: 
   - sbt compile
-  - sbt 'project akka-actor' test 
-  - sbt 'project akka-testkit' test
-  - sbt 'project akka-actor-tests' test
-#fails:  - sbt 'project akka-remote' test
-  - sbt 'project akka-camel' test
-  - sbt 'project akka-cluster' test
-  - sbt 'project akka-slf4j' test
-  - sbt 'project akka-agent' test
-  - sbt 'project akka-transactor' test
-  - sbt 'project akka-durable-mailboxes' test
-  - sbt 'project akka-zeromq' test
-  - sbt 'project akka-docs' test
+  - sbt ";project akka-actor;test;project akka-testkit;test;project akka-actor-tests;test;project akka-remote;test;project akka-comel;test;project akka-cluster;test;project akka-slf4j;test;project akka-agent;test;project akka-transactor;test;project akka-durable-mailboxes;test;project akka-zeromq;test;project akka-docs;test" 
 branches:
   only:
     - add-travis-ci
