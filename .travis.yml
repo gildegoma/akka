@@ -1,11 +1,10 @@
 language: scala
 scala: "'version defined in project/AkkaBuild.scala'"
-#script: "sbt compile && sbt -Dakka.parallelExecution=true test"
-script: "java -Xms256M -Xmx512M -Xss1M -XX:ReservedCodeCacheSize=64M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar test"
-#   - "java -Xms256M -Xmx512M -Xss1M -XX:ReservedCodeCacheSize=64M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar compile"
-#   - "java -Xms256M -Xmx512M -Xss1M -XX:ReservedCodeCacheSize=64M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar test"
+script: "$CUSTOM_SBT compile && $CUSTOM_SBT -Dakka.parallelExecution=true test"
 #  - sbt compile
 #  - sbt ";project akka-actor;test;project akka-testkit;test;project akka-actor-tests;test;project akka-remote;test;project akka-camel;test;project akka-cluster;test;project akka-slf4j;test;project akka-agent;test;project akka-transactor;test;project akka-durable-mailboxes;test;project akka-zeromq;test;project akka-docs;test" 
+env:
+  - CUSTOM_SBT="java -Xms256M -Xmx512M -Xss1M -XX:ReservedCodeCacheSize=64M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar"
 branches:
   only:
     - add-travis-ci
