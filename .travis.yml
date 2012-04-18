@@ -1,6 +1,7 @@
 language: scala
 scala: "'version defined in project/AkkaBuild.scala'"
-script: sbt test
+#script: sbt test
+script: "java -Xms256M -Xmx512M -Xss1M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -jar /usr/lib/sbt-0.11.2/sbt-launch.jar test"
 #  - sbt compile
 #  - sbt ";project akka-actor;test;project akka-testkit;test;project akka-actor-tests;test;project akka-remote;test;project akka-camel;test;project akka-cluster;test;project akka-slf4j;test;project akka-agent;test;project akka-transactor;test;project akka-durable-mailboxes;test;project akka-zeromq;test;project akka-docs;test" 
 branches:
