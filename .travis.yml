@@ -11,7 +11,7 @@ script: "$CUSTOM_SBT compile && $CUSTOM_SBT -Dakka.parallelExecution=true test"
 env:
   - CUSTOM_SBT="java -Xms256M -Xmx512M -Xss1M -XX:ReservedCodeCacheSize=64M -XX:+CMSClassUnloadingEnabled -XX:PermSize=256M -XX:MaxPermSize=512M -Dakka.test.timefactor=5 -jar /usr/lib/sbt-0.11.2/sbt-launch.jar"
   # compare with running the test like on official CI server of Akka project (cf https://jenkins.typesafe.com)
-  - CUSTOM_SBT="java -XX:MaxPermSize=256M -Xms256m -Xmx1g -Xss2m -Dsbt.log.format=true -Dakka.test.timefactor=5 -jar /usr/lib/sbt-0.11.2/sbt-launch.jar"
+  - CUSTOM_SBT="java -XX:MaxPermSize=256M -Xms256m -Xmx1g -Xss2m -XX:ReservedCodeCacheSize=64M -Dsbt.log.format=true -Dakka.test.timefactor=5 -jar /usr/lib/sbt-0.11.2/sbt-launch.jar"
 branches:
   only:
     - add-travis-ci
