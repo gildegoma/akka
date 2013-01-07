@@ -1,0 +1,13 @@
+language: scala
+scala:
+  - 2.10.0
+script: 
+  - sbt ++$TRAVIS_SCALA_VERSION compile 
+  - sbt ++$TRAVIS_SCALA_VERSION -Dakka.parallelExecution=true test
+
+notifications:
+  # Email notifications are disabled to not annoy anybody.
+  # See http://about.travis-ci.org/docs/user/build-configuration/ to learn more
+  # about configuring notification recipients and more (e.g. IRC notifications).
+  email: false
+
