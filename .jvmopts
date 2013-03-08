@@ -1,9 +1,9 @@
--XX:MaxPermSize=320M 
+-XX:MaxPermSize=384M 
 -Xms256M
--Xmx1G 
+-Xmx512M 
 -Xss2M 
 -Dsbt.log.format=true 
 -Dakka.test.timefactor=5 
 -Dakka.test.tags.exclude=long-running,timing 
--Dakka.parallelExecution=true
+-Dakka.parallelExecution=false
 -Djava.security.egd=file:/dev/urandom
