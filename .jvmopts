@@ -2,6 +2,8 @@
 -Xms256M
 -Xmx512M 
 -Xss2M 
+-XX:+UseCompressedOops
+-XX:ReservedCodeCacheSize=96M
 -Dsbt.log.format=true 
 -Dakka.test.timefactor=5 
 -Dakka.test.tags.exclude=long-running,timing 
