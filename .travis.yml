@@ -1,7 +1,7 @@
 language: scala
 scala: 2.10.0
 script: 
-  - sbt compile test:compile
+  - sbt -J-Xms2G -J-Xmx2G compile test:compile
   - sbt -v test
 notifications:
   email: false
