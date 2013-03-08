@@ -1,5 +1,5 @@
 -XX:MaxPermSize=320M 
--Xms1G
+-Xms256M
 -Xmx1G 
 -Xss2M 
 -Dsbt.log.format=true 
