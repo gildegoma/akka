@@ -5,5 +5,5 @@
 -Dsbt.log.format=true 
 -Dakka.test.timefactor=5 
 -Dakka.test.tags.exclude=long-running,timing 
+-Dakka.parallelExecution=true
 -Djava.security.egd=file:/dev/./urandom
-
