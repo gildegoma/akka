@@ -1,7 +1,8 @@
 language: scala
 scala: 2.10.0
 script: 
-  - sbt -J-Xms2G -J-Xmx2G compile test:compile
+  - sbt -v compile test:compile
+  - cp .travis-jvmopts .jvmopts
   - sbt -v test
 notifications:
   email: false
