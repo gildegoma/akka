@@ -1,0 +1,7 @@
+language: scala
+scala: 2.10.0
+script:
+  - sbt compile
+  - sbt -Dakka.parallelExecution=true test
+notifications:
+  email: false
